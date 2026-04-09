@@ -77,6 +77,7 @@ fn test_js_parser_matches_rust() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
     let test_script = std::path::Path::new(&manifest_dir)
         .join("trace_viewer")
+        .join("tests")
         .join("test_parser.js");
 
     let test_output = Command::new("node")

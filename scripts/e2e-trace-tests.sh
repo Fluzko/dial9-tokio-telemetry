@@ -35,10 +35,13 @@ export AWS_PROFILE="${AWS_PROFILE:-fake-profile}"
 echo "--- Regenerating demo trace ---"
 scripts/regenerate_demo_trace.sh
 
+echo "--- Checking synthetic parser ---"
+node dial9-tokio-telemetry/trace_viewer/tests/test_parser_synthetic.js
+
 echo "--- Checking trace integrity ---"
-node dial9-tokio-telemetry/trace_viewer/test_trace_integrity.js
+node dial9-tokio-telemetry/trace_viewer/tests/test_trace_integrity.js
 
 echo "--- Checking trace analysis ---"
-node dial9-tokio-telemetry/trace_viewer/test_trace_analysis.js
+node dial9-tokio-telemetry/trace_viewer/tests/test_trace_analysis.js
 
 echo "All E2E trace checks passed."
