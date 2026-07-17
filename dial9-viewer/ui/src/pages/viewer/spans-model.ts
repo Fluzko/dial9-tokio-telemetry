@@ -55,7 +55,7 @@ export interface SpanTrackData {
   allSpans: readonly TracingSpan[];
   /** Columnar span store (main-thread path); scan/window fns dispatch on it.
    * When set, `allSpans` is empty. */
-  columnarSpans?: ColumnarSpans;
+  columnarSpans?: ColumnarSpans | undefined;
   spanMeta: SpanData["spanMeta"];
   childrenByParent: SpanData["childrenByParent"];
   /** Spans with an enter but no exit - the truncation/incompleteness surface,
@@ -119,7 +119,7 @@ export function computeSpanTrackData(
     durs.push(dur);
   };
   if (cs) {
-    for (let r = 0; r < cs.length; r++) addDur(cs.spanNameAt(r), cs.end[r] - cs.start[r]);
+    for (let r = 0; r < cs.length; r++) addDur(cs.spanNameAt(r), cs.end[r]! - cs.start[r]!);
   } else {
     for (const s of data.allSpans) addDur(s.spanName, s.end - s.start);
   }
@@ -247,9 +247,9 @@ export function filterVisibleSpans(
     // Right edge: binary search the start column. Left edge: prefix scan reading
     // the end column (cheap), materializing a span only for a viewport survivor.
     let lo = 0, hiB = cs.length;
-    while (lo < hiB) { const m = (lo + hiB) >> 1; if (cs.start[m] <= viewEnd) lo = m + 1; else hiB = m; }
+    while (lo < hiB) { const m = (lo + hiB) >> 1; if (cs.start[m]! <= viewEnd) lo = m + 1; else hiB = m; }
     for (let i = 0; i < lo; i++) {
-      if (cs.end[i] < viewStart) continue;
+      if (cs.end[i]! < viewStart) continue;
       const s = cs.at(i);
       if (!spanMatchesFilter(s, filter, data.durationsByName)) continue;
       out.push(s);

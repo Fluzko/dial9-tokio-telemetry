@@ -73,10 +73,10 @@ export function findContainingSpan(
   if (columnarSpans) {
     const cs = columnarSpans;
     for (let r = 0; r < cs.length; r++) {
-      if (cs.end[r] < ns || cs.start[r] > ns) continue;
-      const lo = cs.segOff[r], hi = cs.segOff[r + 1];
+      if (cs.end[r]! < ns || cs.start[r]! > ns) continue;
+      const lo = cs.segOff[r]!, hi = cs.segOff[r + 1]!;
       for (let j = lo; j < hi; j++) {
-        if (cs.segWorker[j] === workerId && cs.segStart[j] <= ns && cs.segEnd[j] >= ns) return cs.at(r);
+        if (cs.segWorker[j] === workerId && cs.segStart[j]! <= ns && cs.segEnd[j]! >= ns) return cs.at(r);
       }
     }
     return null;
@@ -106,9 +106,9 @@ export function enclosingSpansColumnar(
   const ts = ev.timestamp;
   const out: TracingSpan[] = [];
   for (let r = 0; r < cs.length; r++) {
-    const lo = cs.segOff[r], hi = cs.segOff[r + 1];
+    const lo = cs.segOff[r]!, hi = cs.segOff[r + 1]!;
     for (let j = lo; j < hi; j++) {
-      if (cs.segWorker[j] === wid && cs.segStart[j] <= ts && cs.segEnd[j] >= ts) {
+      if (cs.segWorker[j] === wid && cs.segStart[j]! <= ts && cs.segEnd[j]! >= ts) {
         out.push(cs.at(r) as unknown as TracingSpan);
         break;
       }
