@@ -14,6 +14,7 @@ import type {
   TimeRange,
 } from "./trace.js";
 import type { TimePanelLayout } from "../../panel_layout.js";
+import type { TaskScope } from "../pages/viewer/task-flamegraph-model.js";
 
 // ── Panel vocabulary ────────────────────────────────────────────────────
 
@@ -406,6 +407,15 @@ export interface ViewerViewSlice {
   expandedPollGroups: ReadonlySet<string>;
   /** Which sample family the poll flamegraph displays when both are present. */
   pollFlamegraphSection: "cpu" | "sched";
+  /** Whether the Task tab's flamegraph is open (the "Flame" button). */
+  taskFlamegraphOpen: boolean;
+  /**
+   * What the Task tab is looking at: the selected task alone, or every task
+   * spawned at the same location. ONE scope drives both surfaces - the lanes
+   * tint the sibling tasks and the flamegraph folds their samples - so the two
+   * can never disagree about what "all from this spawn location" means.
+   */
+  taskScope: TaskScope;
   pollWorkerZoom: readonly string[];
   pollOffworkerZoom: readonly string[];
   relatedCollapsed: Readonly<Record<string, boolean>>;

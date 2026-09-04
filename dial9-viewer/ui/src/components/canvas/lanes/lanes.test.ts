@@ -107,6 +107,7 @@ function baseInput(over: Partial<LanesRenderInput>): LanesRenderInput {
     selectedTaskId: null,
     selectedSpanIds: new Set(),
     hoveredWakerTaskId: null,
+    spawnScopeTaskIds: new Set<number>(),
     pinnedPoll: null,
     sharedMaxQ: 1,
     dimmer: (c) => c,

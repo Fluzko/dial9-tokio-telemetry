@@ -158,6 +158,29 @@ describe("viewer URL state: issues-rail (poi)", () => {
   });
 });
 
+describe("viewer URL state: task scope", () => {
+  it("round-trips an open flamegraph and a non-default scope", () => {
+    const { params, out } = roundTrip(
+      mkState({ view: { taskFlamegraphOpen: true, taskScope: "spawn-location" } }),
+    );
+    expect(params.get("task-flame")).toBe("1");
+    expect(params.get("task-scope")).toBe("spawn-location");
+    expect(out.taskFlame).toBe(true);
+    expect(out.taskScope).toBe("spawn-location");
+  });
+
+  it("emits nothing at the resting defaults", () => {
+    const { params } = roundTrip(mkState({}));
+    expect(params.get("task-flame")).toBeNull();
+    expect(params.get("task-scope")).toBeNull();
+  });
+
+  it("drops a scope the Task tab does not offer", () => {
+    expect(readViewerUrlState("?task-scope=everything").taskScope).toBeUndefined();
+    expect(readViewerUrlState("?task-flame=yes").taskFlame).toBeUndefined();
+  });
+});
+
 describe("viewer URL state: span filters", () => {
   it("round-trips the percentile filter", () => {
     const { params, out } = roundTrip(mkState({ uiPrefs: { spanPctFilter: 99 } }));

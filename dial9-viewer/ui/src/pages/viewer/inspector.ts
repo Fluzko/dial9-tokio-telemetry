@@ -68,6 +68,14 @@ import {
   type PollDetailView,
 } from "./inspector-model.js";
 import { createFlamegraphHost } from "./flamegraph-host.js";
+import {
+  TASK_SCOPES,
+  buildTaskFlamegraphView,
+  scopeLabel,
+  taskFlamegraphCacheSignature,
+  type TaskFlamegraphView,
+  type TaskScope,
+} from "./task-flamegraph-model.js";
 import { pollFlamegraphCacheSignature } from "./analysis-cache-signature.js";
 
 /** Clamp bounds for the resize drag ([200px, 92vw]). */
@@ -197,6 +205,10 @@ export function mountInspector(
     doc: host.ownerDocument,
     className: "d9-task-dump-fg",
   });
+  const taskFg = createFlamegraphHost({
+    doc: host.ownerDocument,
+    className: "d9-task-fg",
+  });
   const traceIds = new WeakMap<object, number>();
   let nextTraceId = 1;
   function traceId(trace: StoreState["trace"]["trace"]): number {
@@ -318,6 +330,8 @@ export function mountInspector(
     // A task-dump click also renders a flamegraph in the Stack tab from the
     // selection stored by the task-detail track.
     syncTaskDumpFlamegraph(s);
+    // And the Task tab's own scope flamegraph.
+    syncTaskFlamegraph(s);
   }
 
   /** Readout-only render (transient channel; the at-moment surface). */
@@ -497,8 +511,104 @@ export function mountInspector(
         ${d.taskDumps.length > 0
           ? kv("idle stacks", `${d.taskDumps.length} captured (flamegraph)`)
           : nothing}
+        ${taskScopeControls(d)}
+        ${state().view.taskFlamegraphOpen ? taskFlamegraphBody(d) : nothing}
       </div>
     `;
+  }
+
+  /**
+   * The scope switch + the Flame toggle.
+   *
+   * The scope is deliberately NOT flamegraph-local: choosing "All from spawn"
+   * also tints every sibling task's polls in the worker lanes, so the timeline
+   * and the profile answer the same question. It is offered only when the trace
+   * recorded a spawn location to group by.
+   */
+  function taskScopeControls(d: TaskDetailData): TemplateResult {
+    const scope = activeTaskScope(d);
+    const open = state().view.taskFlamegraphOpen;
+    const groupable = d.spawnLocation != null;
+    return html`
+      <div class="d9-task-scope">
+        <span class="d9-task-scope-switch" role="group" aria-label="Task scope">
+          ${TASK_SCOPES.map(
+            (s) => html`<button
+              type="button"
+              class=${classMap({ "d9-task-scope-btn": true, on: s === scope })}
+              aria-pressed=${s === scope ? "true" : "false"}
+              ?disabled=${s === "spawn-location" && !groupable}
+              title=${s === "task"
+                ? "Look at this task alone"
+                : groupable
+                  ? "Highlight every task spawned at this location, and fold their samples together"
+                  : "This task has no recorded spawn location to group by"}
+              @click=${() => setTaskScope(s)}
+            >
+              ${scopeLabel(s)}
+            </button>`,
+          )}
+        </span>
+        <button
+          type="button"
+          class=${classMap({ "d9-task-flame-btn": true, on: open })}
+          aria-pressed=${open ? "true" : "false"}
+          aria-controls="d9-task-fg"
+          title="Show a CPU flamegraph for the current scope"
+          @click=${() => store.update("view", { taskFlamegraphOpen: !open })}
+        >
+          🔥 Flame
+        </button>
+      </div>
+    `;
+  }
+
+  /** The scope actually in force: "spawn-location" needs a location to group
+   *  by, so a task without one falls back rather than showing an empty tree. */
+  function activeTaskScope(d: TaskDetailData): TaskScope {
+    const scope = state().view.taskScope;
+    return scope === "spawn-location" && d.spawnLocation == null ? "task" : scope;
+  }
+
+  function setTaskScope(scope: TaskScope): void {
+    if (state().view.taskScope === scope) return;
+    store.update("view", { taskScope: scope });
+  }
+
+  /**
+   * The flamegraph slot. `[data-task-fg-host]` is binding-free so the
+   * post-render sync can own the canvas without lit-html reconciling it away
+   * (same technique as the poll and region hosts).
+   */
+  function taskFlamegraphBody(d: TaskDetailData): TemplateResult {
+    const view = taskFlamegraphViewFor(d);
+    if (view.samples.length === 0) {
+      return html`<p class="d9-inspector-hint" id="d9-task-fg">
+        No CPU samples were captured for
+        ${view.scope === "task" ? "this task" : "these tasks"}.
+      </p>`;
+    }
+    const scopeNote =
+      view.scope === "spawn-location"
+        ? `${view.taskCount} task${view.taskCount === 1 ? "" : "s"} from this spawn location`
+        : "this task only";
+    return html`
+      <div class="d9-task-fg-note">
+        ${view.samples.length} sample${view.samples.length === 1 ? "" : "s"} ·
+        ${scopeNote}
+      </div>
+      <div class="d9-task-fg-host" id="d9-task-fg" data-task-fg-host></div>
+    `;
+  }
+
+  function taskFlamegraphViewFor(d: TaskDetailData): TaskFlamegraphView {
+    return buildTaskFlamegraphView(
+      state().trace.trace,
+      d.taskId,
+      d.polls,
+      d.spawnLocation,
+      activeTaskScope(d),
+    );
   }
 
   function kv(k: string, v: string): TemplateResult {
@@ -770,6 +880,46 @@ export function mountInspector(
       apply: (instance) =>
         instance.setData(samples, data().callframeSymbols, {
           exportTitle: `Waiting on — ${count} async stack capture${count === 1 ? "" : "s"}`,
+        }),
+    });
+  }
+
+  /**
+   * Feed the Task tab's flamegraph after the frame render (the host node exists
+   * only then). A no-op unless the Task tab is showing an open flamegraph with
+   * samples; otherwise it detaches, so the widget parks with its removed host
+   * exactly like the poll and region hosts.
+   */
+  function syncTaskFlamegraph(s: StoreState): void {
+    if (s.view.inspectorTab !== "task" || !s.view.taskFlamegraphOpen) {
+      taskFg.detach();
+      return;
+    }
+    const hostEl = host.querySelector<HTMLElement>("[data-task-fg-host]");
+    if (hostEl === null) {
+      taskFg.detach();
+      return;
+    }
+    const d = taskDetail();
+    const view = taskFlamegraphViewFor(d);
+    if (view.samples.length === 0) {
+      taskFg.detach();
+      return;
+    }
+    const sig = taskFlamegraphCacheSignature({
+      traceId: traceId(s.trace.trace),
+      taskId: d.taskId,
+      scope: view.scope,
+      spawnLocation: d.spawnLocation,
+      sampleCount: view.samples.length,
+    });
+    taskFg.sync({
+      hostEl,
+      sig,
+      apply: (instance) =>
+        instance.setData(view.samples, data().callframeSymbols, {
+          exportTitle: view.title,
+          runtimeWorkers: data().runtimeWorkers,
         }),
     });
   }
@@ -1286,6 +1436,7 @@ export function mountInspector(
       unregisterEsc();
       pollFg.destroy();
       taskDumpFg.destroy();
+      taskFg.destroy();
       window.removeEventListener("mousemove", onResizeMove);
       window.removeEventListener("mouseup", onResizeUp);
     },

@@ -96,6 +96,8 @@ export function initialViewerState(): StoreState {
       inspectorTab: "task",
       expandedPollGroups: new Set<string>(),
       pollFlamegraphSection: "cpu",
+      taskFlamegraphOpen: false,
+      taskScope: "task",
       pollWorkerZoom: [],
       pollOffworkerZoom: [],
       relatedCollapsed: {},

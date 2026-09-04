@@ -146,6 +146,10 @@ export interface ViewState {
   /** Inspector and poll-detail view controls. */
   inspectorTab?: string;
   pollSection?: string;
+  /** Task tab: whether its flamegraph is open. */
+  taskFlame?: boolean;
+  /** Task tab: what it is scoped to (`task` is the default and omitted). */
+  taskScope?: string;
   expandedPollGroups?: readonly string[];
   pollWorkerZoom?: readonly string[];
   pollOffworkerZoom?: readonly string[];

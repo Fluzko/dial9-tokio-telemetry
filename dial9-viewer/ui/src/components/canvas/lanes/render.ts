@@ -65,6 +65,11 @@ export const RUNTIME_HEADER_H = 24;
 /** Divider between adjacent worker lanes, so row boundaries are unambiguous. */
 const LANE_DIVIDER = "#0b0e18";
 
+/** Sibling tasks from the scoped spawn location. Violet, so it reads as a
+ *  different question from the selected task (yellow) and the hovered waker
+ *  (orange) rather than competing with them. */
+const SPAWN_SCOPE_FILL = "#9575cd";
+
 /** The minimal 2D-context surface renderLanes needs (Node-testable). */
 export interface LaneDrawContext extends StrokePathContext {
   fillStyle: string | CanvasGradient | CanvasPattern;
@@ -113,6 +118,12 @@ export interface LanesRenderInput {
   selectedSpanIds: ReadonlySet<string>;
   /** Hovered waker task -> orange polls. */
   hoveredWakerTaskId: number | null;
+  /**
+   * Every task spawned at the Task tab's scoped spawn location -> violet polls.
+   * This is how "show me the other tasks from this call site" reads on the
+   * timeline. Empty when the tab is scoped to a single task.
+   */
+  spawnScopeTaskIds: ReadonlySet<number>;
   /** Pinned custom-event poll -> single yellow bar (the in-lane mark). */
   pinnedPoll: PollSpan | null;
   /** Shared visible local-queue max across all workers (scale). */
@@ -328,6 +339,7 @@ export function renderLanes(
     drawPolls(ctx, batcher, row, spans, input, nsToX, drawW, bandTop, bandH);
     drawCpuTicks(ctx, spans.cpuSampleTimes, viewStart, viewEnd, nsToX, drawW, bandTop, bandH);
     drawSchedTriangles(ctx, spans.polls, input, nsToX, bandTop, bandH);
+    drawSpawnScopeHighlight(ctx, spans.polls, input, nsToX, drawW, bandTop, bandH);
     drawWakerHighlight(ctx, spans.polls, input, nsToX, drawW, bandTop, bandH);
     drawSelectedSpanOutlines(ctx, spans.polls, workerId, input, nsToX, drawW, bandTop, bandH);
     drawWakeMarkers(ctx, workerId, input, nsToX, top, sf);
@@ -725,6 +737,35 @@ function drawSchedTriangles(
       ctx.closePath();
       ctx.fill();
     }
+  }
+}
+
+/**
+ * Tint every poll of every task sharing the scoped spawn location. Drawn BEFORE
+ * the waker highlight so a task that is both a sibling and the hovered waker
+ * still reads as the waker - the more specific signal wins the pixel.
+ */
+function drawSpawnScopeHighlight(
+  ctx: LaneDrawContext,
+  polls: SpanList<PollSpan>,
+  input: LanesRenderInput,
+  nsToX: (ns: number) => number,
+  drawW: number,
+  bandTop: number,
+  bandH: number,
+): void {
+  const siblings = input.spawnScopeTaskIds;
+  if (siblings.size === 0) return;
+  const { viewStart, viewEnd } = input;
+  const pollStart = firstVisible(polls, viewStart);
+  ctx.fillStyle = SPAWN_SCOPE_FILL;
+  for (let i = pollStart; i < polls.length; i++) {
+    const s = polls.at(i)!;
+    if (s.start > viewEnd) break;
+    if (!siblings.has(s.taskId)) continue;
+    const x1 = Math.max(0, nsToX(s.start));
+    const x2 = Math.min(drawW, nsToX(s.end));
+    ctx.fillRect(x1, bandTop, Math.max(x2 - x1, 2), bandH);
   }
 }
 

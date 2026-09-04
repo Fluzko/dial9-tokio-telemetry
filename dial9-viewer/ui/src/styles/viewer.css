@@ -2180,9 +2180,58 @@ body {
 .d9-poll-fg-section.on { color: #fff; background: var(--d9-accent); border-color: var(--d9-accent); }
 .d9-poll-fg-section:focus-visible { outline: 2px solid var(--d9-accent); outline-offset: -2px; }
 .d9-poll-fg-host,
-.d9-task-dump-fg-host { min-height: 320px; height: 42vh; position: relative; }
+.d9-task-dump-fg-host,
+.d9-task-fg-host { min-height: 320px; height: 42vh; position: relative; }
 .d9-poll-fg,
-.d9-task-dump-fg { width: 100%; height: 100%; }
+.d9-task-dump-fg,
+.d9-task-fg { width: 100%; height: 100%; }
+
+/* Task-tab scope row: the This task / All from spawn switch, plus the Flame
+   toggle pushed to the far edge. The scope drives the lane tint as well, so it
+   sits with the task's facts rather than inside the flamegraph. */
+.d9-task-scope {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--d9-border);
+}
+.d9-task-scope-switch {
+    display: inline-flex;
+    border: 1px solid var(--d9-border);
+    border-radius: 4px;
+    overflow: hidden;
+}
+.d9-task-scope-btn {
+    font-size: 0.72em;
+    color: var(--d9-fg-muted);
+    background: transparent;
+    border: none;
+    padding: 2px 8px;
+    cursor: pointer;
+}
+.d9-task-scope-btn.on { color: #fff; background: #9575cd; }
+.d9-task-scope-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.d9-task-scope-btn:focus-visible { outline: 2px solid var(--d9-accent); outline-offset: -2px; }
+.d9-task-flame-btn {
+    font-size: 0.72em;
+    color: var(--d9-fg-muted);
+    background: transparent;
+    border: 1px solid var(--d9-border);
+    border-radius: 4px;
+    padding: 2px 8px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.d9-task-flame-btn.on { color: #fff; background: var(--d9-accent); border-color: var(--d9-accent); }
+.d9-task-flame-btn:focus-visible { outline: 2px solid var(--d9-accent); outline-offset: -2px; }
+.d9-task-fg-note {
+    font-size: 0.7em;
+    color: var(--d9-fg-muted);
+    margin: 6px 0 2px;
+}
 
 /* Blocking-calls panel. */
 .d9-block-groupby select {
