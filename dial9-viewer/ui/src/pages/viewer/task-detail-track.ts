@@ -16,9 +16,11 @@
 //     contract; this track never reaches into the lanes.
 //
 // This file owns the timeline track (per-task polls/wakes over time) + the
-// derivation. The textual detail (task id, spawn location, counts, the
-// uninstrumented badge, the idle-flamegraph link) renders in the inspector Task
-// tab from the SAME derivation, exposed via createTaskDetailDerivation.
+// derivation. Its gutter carries the task id plus the spawn location in
+// `file.rs:line` form (the full path stays on the `title`). The rest of the
+// textual detail (counts, the uninstrumented badge, the idle-flamegraph link)
+// renders in the inspector Task tab from the SAME derivation, exposed via
+// createTaskDetailDerivation.
 
 import { drawWindowMarkers } from "./resident-window.js";
 import { html, nothing, type TemplateResult } from "lit-html";
@@ -38,6 +40,7 @@ import {
   computeTaskDetailData,
   formatTaskDetailSummary,
   hitRegionAt,
+  spawnLocLabel,
   statusTextAt,
   wakeRegionAt,
   type TaskDetailData,
@@ -197,6 +200,7 @@ export function createTaskDetailTrack(store: ViewerStore): TaskDetailTrackContro
     const data = taskDetailData();
     const identity =
       data.taskId !== null ? formatTaskDetailSummary(data) : track.label;
+    const spawnLoc = spawnLocLabel(data.spawnLocation);
     return html`
       <div
         class="d9-track d9-track--task-detail"
@@ -208,6 +212,13 @@ export function createTaskDetailTrack(store: ViewerStore): TaskDetailTrackContro
           ${data.taskId !== null
             ? html`<span class="d9-task-detail-id" title=${identity}
                 >Task 0x${data.taskId.toString(16)}</span
+              >`
+            : nothing}
+          ${spawnLoc !== null
+            ? html`<span
+                class="d9-task-detail-spawn"
+                title=${data.spawnLocation ?? ""}
+                >${spawnLoc}</span
               >`
             : nothing}
         </div>

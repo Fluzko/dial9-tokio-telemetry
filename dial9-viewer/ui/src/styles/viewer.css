@@ -1043,6 +1043,14 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
 }
+.d9-task-detail-spawn {
+    font-size: 0.66em;
+    color: var(--d9-fg-muted);
+    font-family: var(--d9-mono, monospace);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
 .d9-task-detail-wrap { position: relative; }
 .d9-task-detail-status {
     position: absolute;

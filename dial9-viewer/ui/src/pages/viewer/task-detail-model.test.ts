@@ -20,6 +20,7 @@ import {
   firstVisibleByEnd,
   formatTaskDetailSummary,
   hitRegionAt,
+  spawnLocLabel,
   statusTextAt,
   wakeRegionAt,
   wakerLabelFor,
@@ -173,6 +174,31 @@ describe("formatTaskDetailSummary (label parts)", () => {
     const trace = fakeTrace({ taskInstrumented: { 42: false } });
     const data = computeTaskDetailData(base, trace, 42);
     expect(formatTaskDetailSummary(data)).toBe("Task 0x2a · 2 polls");
+  });
+});
+
+// ── spawnLocLabel ─────────────────────────────────────────────────────────
+
+describe("spawnLocLabel (the gutter form)", () => {
+  it("drops directories and the trailing column", () => {
+    expect(
+      spawnLocLabel(
+        "-cargobrazil/amzn_s3_cds_client-0.1.609/src/discovery/full_ok_view_discovery.rs:237:28",
+      ),
+    ).toBe("full_ok_view_discovery.rs:237");
+  });
+
+  it("keeps a location that carries no column", () => {
+    expect(spawnLocLabel("src/foo/bar.rs:12")).toBe("bar.rs:12");
+  });
+
+  it("passes through a location with no line info at all", () => {
+    expect(spawnLocLabel("src/foo/bar.rs")).toBe("bar.rs");
+    expect(spawnLocLabel("tokio::spawn")).toBe("tokio::spawn");
+  });
+
+  it("is null for a task with no recorded location", () => {
+    expect(spawnLocLabel(null)).toBeNull();
   });
 });
 
