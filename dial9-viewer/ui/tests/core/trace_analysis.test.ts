@@ -34,6 +34,7 @@ const {
   buildActiveTaskTimeline,
   computeSchedulingDelays,
   filterPointsOfInterest,
+  POI_DEFAULT_WORST_N,
   buildFlamegraphTree,
   flattenFlamegraph,
   buildFgData,
@@ -662,16 +663,44 @@ describe("computeSchedulingDelays", () => {
 // ── filterPointsOfInterest ──
 
 describe("filterPointsOfInterest", () => {
-  it("long-poll filter: results all > 1ms", () => {
+  it("long-poll filter: returns the worst N, severity-ranked, not a cutoff", () => {
+    let matched = -1;
     const pois = filterPointsOfInterest("long-poll", workerSpans, workerIds, schedDelays, {
       hasSchedWait: trace.hasSchedWait,
+      sortByWorst: true,
+      onTotal: (n: number) => (matched = n),
     });
     expect(pois.length, "No long-poll points of interest found").toBeGreaterThan(0);
-    const offenders = pois.filter((p: any) => p.type !== "long-poll" || p.value <= 1);
-    expect(
-      offenders.map((p: any) => `type=${p.type} value=${p.value}`),
-      "long-poll results with wrong type or value <= 1ms",
-    ).toEqual([]);
+    const offenders = pois.filter((p: any) => p.type !== "long-poll");
+    expect(offenders.map((p: any) => p.type), "wrong type in long-poll results").toEqual([]);
+
+    // Ranked worst-first, and capped at the default rather than by a duration.
+    const values = pois.map((p: any) => p.value);
+    expect(values).toEqual([...values].sort((a, b) => b - a));
+    expect(pois.length).toBeLessThanOrEqual(POI_DEFAULT_WORST_N);
+
+    // Every poll is a candidate now, so the true match count is the poll count.
+    const pollCount = workerIds.reduce(
+      (n: number, w: number) => n + workerSpans[w].polls.length,
+      0,
+    );
+    expect(matched).toBe(pollCount);
+  });
+
+  it("long-poll filter: a cap keeps the worst, even in chronological order", () => {
+    const opts = { hasSchedWait: trace.hasSchedWait, limit: 5 };
+    const worstFirst = filterPointsOfInterest("long-poll", workerSpans, workerIds, schedDelays, {
+      ...opts, sortByWorst: true,
+    });
+    const chronological = filterPointsOfInterest("long-poll", workerSpans, workerIds, schedDelays, {
+      ...opts, sortByWorst: false,
+    });
+    // Same five points, presented differently: capping in time order would have
+    // returned the FIRST five polls and dropped every outlier behind them.
+    expect(new Set(chronological.map((p: any) => p.value)))
+      .toEqual(new Set(worstFirst.map((p: any) => p.value)));
+    const times = chronological.map((p: any) => p.time);
+    expect(times).toEqual([...times].sort((a, b) => a - b));
   });
 
   it("cpu-sampled filter: results all with samples", () => {

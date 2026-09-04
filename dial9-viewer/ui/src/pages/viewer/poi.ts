@@ -3,6 +3,12 @@
 // detector set - no new detector is built here. The same output feeds the
 // minimap ticks independently.
 //
+// The detectors RANK by severity rather than applying a fixed cutoff, so the
+// rail shows the worst N of a kind (`poi.worstN`) and reports the true match
+// count beside it. A cutoff failed in both directions: ">1ms" buried the real
+// outliers under thousands of borderline rows on a busy trace, and showed an
+// empty rail on a fast one whose worst poll was 800us.
+//
 // The detectors run over the RESIDENT `trace` slice. Whole-trace loads make
 // the POI set complete; when segment windowing feeds a partial trace, the
 // count is over the resident window only - consumers must not present it as
@@ -66,16 +72,15 @@ export function filterLabel(type: PointOfInterestType): string {
     case "sched":
       return "Kernel Scheduling Delays";
     case "long-poll":
-      return "Long Polls (>1ms)";
+      return "Longest Polls";
     case "cpu-sampled":
       return "Polls with CPU Samples";
     case "wake-delay":
-      return "Wake->Poll Delays (>100us)";
+      return "Wake->Poll Delays";
     case "uninstrumented":
       return "Uninstrumented Polls";
     case "spawn-delay":
-      // No threshold in the label, unlike its fixed-threshold siblings: the
-      // rail renders the live value in its own input.
+      // The rail renders this detector's optional floor in its own input.
       return "Spawn->First Poll Delays";
   }
 }
@@ -120,9 +125,16 @@ export interface PoiSource {
   taskSpawnTimes: Map<number, number>;
   /** Lazy detector output cache. Keyed by `detectorCacheKey`, which folds in
    *  the threshold for the detectors that take one, so two thresholds never
-   *  share a result. The list is capped at POI_DETECTOR_LIMIT; `matched` is the
-   *  true pre-cap count. */
-  readonly _byFilter: Map<string, { list: PointOfInterest[]; matched: number }>;
+   *  share a result. The list holds the worst POI_DETECTOR_LIMIT; `matched` is
+   *  the true pre-cap count, and `prefixes` memoizes the per-N slices so a
+   *  caller that re-reads the same length gets the same array back. */
+  readonly _byFilter: Map<string, DetectorResult>;
+}
+
+interface DetectorResult {
+  list: PointOfInterest[];
+  matched: number;
+  prefixes: Map<number, PointOfInterest[]>;
 }
 
 function usesSpawnThreshold(filter: PointOfInterestType): boolean {
@@ -135,17 +147,30 @@ function detectorCacheKey(filter: PointOfInterestType, spawnThresholdUs: number)
   return usesSpawnThreshold(filter) ? `${filter}:${spawnThresholdUs}` : filter;
 }
 
+/** The list-length choices the rail offers, smallest first. */
+export const POI_WORST_N_CHOICES: readonly number[] = [10, 50, 200];
+
+/** How many rows the rail shows before the user picks otherwise. */
+export const POI_WORST_N_DEFAULT = 50;
+
 /**
- * Ceiling on how many points a single detector materializes.
+ * What a detector is actually asked for, regardless of the selected N.
  *
- * "Uninstrumented Polls" matches EVERY poll of an uninstrumented task, which on
- * a lightly-instrumented 13M-event trace is millions - enough that building the
- * list (and then a formatted row per entry) exhausts the tab before anything
- * renders. Detectors run with `sortByWorst`, so the cap keeps the worst N,
- * which is the part anyone acts on. The true count is reported separately and
- * is what the rail displays.
+ * Every choice is a prefix of the same severity-ranked list, so running the
+ * detector once at the largest one lets a change of N be a slice rather than a
+ * rescan of the trace. It is also the ceiling that keeps the rail alive on a
+ * big trace: with no cutoff, "Uninstrumented Polls" matches every poll of an
+ * uninstrumented task - millions on a 13M-event trace, enough to exhaust the
+ * tab if each became a row.
  */
-export const POI_DETECTOR_LIMIT = 50_000;
+export const POI_DETECTOR_LIMIT = Math.max(...POI_WORST_N_CHOICES);
+
+/** Clamp a DOM/URL list length onto an offered choice; null when unusable, so
+ *  a malformed value never silently resizes the rail. */
+export function parsePoiWorstN(value: string): number | null {
+  const n = Number(value);
+  return POI_WORST_N_CHOICES.includes(n) ? n : null;
+}
 
 const sourceCache = new WeakMap<ParsedTrace, PoiSource>();
 
@@ -186,7 +211,7 @@ function detectorResult(
   source: PoiSource,
   filter: PointOfInterestType,
   spawnThresholdUs: number,
-): { list: PointOfInterest[]; matched: number } {
+): DetectorResult {
   const cacheKey = detectorCacheKey(filter, spawnThresholdUs);
   const cached = source._byFilter.get(cacheKey);
   if (cached !== undefined) return cached;
@@ -214,25 +239,45 @@ function detectorResult(
     : filterPointsOfInterest(
         filter, source.lanes.workerSpans, source.workerIds, source.schedDelays, opts,
       );
-  // The frozen fat-path detector honours neither `limit` nor `onTotal`, so its
-  // result is already complete and its length IS the true count.
-  const result = { list, matched: matched >= 0 ? matched : list.length };
+  // Both paths report through `onTotal`; the fallback covers a stubbed detector
+  // in a test, whose result is complete and whose length IS the true count.
+  const result: DetectorResult = {
+    list,
+    matched: matched >= 0 ? matched : list.length,
+    prefixes: new Map(),
+  };
   source._byFilter.set(cacheKey, result);
   return result;
 }
 
+/**
+ * The worst `worstN` points of one kind, severity-ranked. The detector always
+ * runs at POI_DETECTOR_LIMIT and every choice is a prefix of that list, so
+ * changing N slices instead of rescanning.
+ */
 export function poisForFilter(
   source: PoiSource,
   filter: PointOfInterestType,
   spawnThresholdUs: number = DEFAULT_SPAWN_DELAY_THRESHOLD_US,
+  worstN: number = POI_WORST_N_DEFAULT,
 ): PointOfInterest[] {
-  return detectorResult(source, filter, spawnThresholdUs).list;
+  const result = detectorResult(source, filter, spawnThresholdUs);
+  if (worstN >= result.list.length) return result.list;
+  // Memoized per length: the rail re-reads this every render, and a fresh slice
+  // each time would defeat the identity checks the render caches depend on.
+  let prefix = result.prefixes.get(worstN);
+  if (prefix === undefined) {
+    prefix = result.list.slice(0, worstN);
+    result.prefixes.set(worstN, prefix);
+  }
+  return prefix;
 }
 
 /**
  * The TRUE number of points a detector matched, which is >= the length of
- * `poisForFilter` once POI_DETECTOR_LIMIT truncates. Counts shown to the user
- * come from here so a capped list never understates how many issues exist.
+ * `poisForFilter` - always, now that the detectors rank rather than threshold.
+ * Counts shown to the user come from here, so "worst 50" never reads as "found
+ * 50".
  */
 export function poiMatchCount(
   source: PoiSource,
@@ -496,16 +541,17 @@ export interface PoiViewModel {
   /**
    * The full retained list in display order. `n`/`p` step across ALL of it, not
    * just the formatted window, so navigation needs the entries themselves;
-   * bounded by POI_DETECTOR_LIMIT, so holding it is cheap.
+   * bounded by `worstN`, so holding it is cheap.
    */
   sorted: readonly PointOfInterest[];
-  /** Total count (the "N/total" position); the TRUE detector match count, which
-   *  can exceed both `rows.length` and POI_DETECTOR_LIMIT. */
+  /** The TRUE detector match count ("worst 50 of 12,431"). Since the detectors
+   *  rank rather than threshold, this is the population the worst N came from,
+   *  not a count of problems. */
   total: number;
-  /** How many points the detector actually retained. Below `total` when the
-   *  detector cap truncated; the rail says so rather than silently showing
-   *  fewer than it claims. */
+  /** How many points the rail actually holds: `min(worstN, total)`. */
   retained: number;
+  /** The selected list length - one of POI_WORST_N_CHOICES. */
+  worstN: number;
   /** Per-detector counts for the red-flags summary chip. */
   redFlags: { type: PointOfInterestType; count: number }[];
   spawnThresholdUs: number;
@@ -553,13 +599,14 @@ export function derivePoiViewModel(
       sorted: [],
       total: 0,
       retained: 0,
+      worstN: poi.worstN,
       redFlags: [],
       spawnThresholdUs: poi.spawnThresholdUs,
       hasSpawnTimes: false,
     };
   }
   const source = poiSourceFor(trace);
-  const filtered = poisForFilter(source, poi.filter, poi.spawnThresholdUs);
+  const filtered = poisForFilter(source, poi.filter, poi.spawnThresholdUs, poi.worstN);
   const sorted = sortPois(filtered, poi.sortKey, poi.sortDir);
   const peak = peakValue(sorted);
   const index = poi.index < sorted.length ? poi.index : -1;
@@ -588,6 +635,7 @@ export function derivePoiViewModel(
     sorted,
     total: poiMatchCount(source, poi.filter, poi.spawnThresholdUs),
     retained: sorted.length,
+    worstN: poi.worstN,
     redFlags: redFlagCounts(source, poi.spawnThresholdUs).filter((r) => r.count > 0),
     spawnThresholdUs: poi.spawnThresholdUs,
     hasSpawnTimes: source.taskSpawnTimes.size > 0,

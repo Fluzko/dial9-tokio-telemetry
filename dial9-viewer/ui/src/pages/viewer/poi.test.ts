@@ -41,6 +41,8 @@ import {
   filterLabel,
   kindLabel,
   peakValue,
+  POI_WORST_N_CHOICES,
+  POI_WORST_N_DEFAULT,
   poiJump,
   poisForFilter,
   poiSourceFor,
@@ -55,6 +57,7 @@ import {
 const DEFAULT_POI: PoiSlice = {
   filter: "sched",
   spawnThresholdUs: DEFAULT_SPAWN_DELAY_THRESHOLD_US,
+  worstN: POI_WORST_N_DEFAULT,
   sortKey: "duration",
   sortDir: "desc",
   index: -1,
@@ -78,7 +81,9 @@ beforeAll(async () => {
   expect(trace.minTs).not.toBeNull();
 });
 
-/** Independently derive the detector count for one filter. */
+/** Independently derive the TRUE detector match count for one filter - the
+ *  population the rail's worst-N came from, which `onTotal` reports because the
+ *  returned list is capped. */
 function referenceCount(
   t: ParsedTrace,
   filter: PointOfInterestType,
@@ -96,13 +101,18 @@ function referenceCount(
   const workerSpans = spanResult.workerSpans;
   if (t.cpuSamples.length > 0) attachCpuSamples(t.cpuSamples, workerSpans);
   const schedDelays = computeSchedulingDelays(workerSpans, workerIds, spanResult.wakesByTask);
-  return filterPointsOfInterest(filter, workerSpans, workerIds, schedDelays, {
+  let matched = 0;
+  filterPointsOfInterest(filter, workerSpans, workerIds, schedDelays, {
     hasSchedWait: t.hasSchedWait,
     sortByWorst: true,
     taskInstrumented: t.taskInstrumented,
     taskSpawnTimes: t.taskSpawnTimes,
     spawnDelayThresholdUs,
-  }).length;
+    onTotal: (n: number) => {
+      matched = n;
+    },
+  });
+  return matched;
 }
 
 describe("rail count contract", () => {
@@ -121,15 +131,33 @@ describe("rail count contract", () => {
   });
 
   it("the displayed sort never changes the count", () => {
-    const base = derivePoiViewModel(trace, DEFAULT_POI, trace.minTs ?? 0).total;
+    const base = derivePoiViewModel(trace, DEFAULT_POI, trace.minTs ?? 0);
     for (const sortKey of ["worker", "kind", "time", "duration"] as const) {
       for (const sortDir of ["asc", "desc"] as const) {
         const vm = derivePoiViewModel(trace, { ...DEFAULT_POI, sortKey, sortDir }, trace.minTs ?? 0);
+        expect(vm.total).toBe(base.total);
         // `retained`, not `rows`: rows is a bounded window into the list.
-        expect(vm.retained).toBe(base);
-        expect(vm.rows.length).toBe(Math.min(base, RAIL_WINDOW));
+        expect(vm.retained).toBe(base.retained);
+        expect(vm.rows.length).toBe(Math.min(base.retained, RAIL_WINDOW));
       }
     }
+  });
+
+  it("lists the worst N of the matched population, and says which", () => {
+    for (const worstN of POI_WORST_N_CHOICES) {
+      const vm = derivePoiViewModel(trace, { ...DEFAULT_POI, worstN }, trace.minTs ?? 0);
+      expect(vm.worstN, `worstN=${worstN}`).toBe(worstN);
+      expect(vm.retained, `worstN=${worstN}`).toBe(Math.min(worstN, vm.total));
+      // The count reported is the population, never the list length: "worst 10"
+      // must not read as "found 10".
+      expect(vm.total).toBe(referenceCount(trace, DEFAULT_POI.filter));
+    }
+  });
+
+  it("a shorter list is a prefix of a longer one (same ranking, fewer rows)", () => {
+    const wide = derivePoiViewModel(trace, { ...DEFAULT_POI, worstN: 200 }, trace.minTs ?? 0);
+    const narrow = derivePoiViewModel(trace, { ...DEFAULT_POI, worstN: 10 }, trace.minTs ?? 0);
+    expect(narrow.sorted).toEqual(wide.sorted.slice(0, narrow.sorted.length));
   });
 });
 

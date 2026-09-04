@@ -19,11 +19,13 @@ import type { KeyBinding } from "../../lib/interact/keyboard.js";
 import { deriveLaneData } from "../../components/canvas/lanes/index.js";
 import {
   POI_FILTERS,
+  POI_WORST_N_CHOICES,
   SPAWN_DELAY_THRESHOLD_MAX_US,
   SPAWN_DELAY_THRESHOLD_MIN_US,
   derivePoiViewModel,
   filterLabel,
   parsePoiFilter,
+  parsePoiWorstN,
   parseSpawnThresholdUs,
   poiJump,
   stepIndex,
@@ -272,7 +274,7 @@ export function createIssuesRail(store: ViewerStore): IssuesRailController {
     const trace = state.trace.trace;
     const { poi, viewport } = state;
     const key = trace
-      ? `${idOf(trace)}|${poi.filter}|${poi.spawnThresholdUs}|${poi.sortKey}|${poi.sortDir}|${viewport.minTs}|${poi.index}`
+      ? `${idOf(trace)}|${poi.filter}|${poi.spawnThresholdUs}|${poi.worstN}|${poi.sortKey}|${poi.sortDir}|${viewport.minTs}|${poi.index}`
       : "none";
     if (cacheVm === null || key !== cacheKey) {
       cacheKey = key;
@@ -383,6 +385,15 @@ export function createIssuesRail(store: ViewerStore): IssuesRailController {
   function setFilter(filter: PointOfInterestType): void {
     // A new filter rebuilds the list; the current index no longer maps.
     store.update("poi", { filter, index: -1 });
+  }
+
+  /** Resizes the list, so the current index no longer maps. The detector is not
+   *  re-run: every choice is a prefix of the same severity-ranked result. */
+  function setWorstN(raw: string): void {
+    const worstN = parsePoiWorstN(raw);
+    if (worstN === null) return;
+    if (worstN === store.getState().poi.worstN) return;
+    store.update("poi", { worstN, index: -1 });
   }
 
   /** Rebuilds the list, so the current index is dropped. An unparseable value
@@ -511,6 +522,7 @@ export function createIssuesRail(store: ViewerStore): IssuesRailController {
         {
           setTab,
           setFilter,
+          setWorstN,
           setSpawnThreshold,
           sortByColumn,
           jumpTo,
@@ -570,6 +582,7 @@ function revealTaskWindow(
 interface RailHandlers {
   setTab(tab: RailTab): void;
   setFilter(filter: PointOfInterestType): void;
+  setWorstN(raw: string): void;
   setSpawnThreshold(raw: string): void;
   sortByColumn(col: Column): void;
   jumpTo(index: number): void;
@@ -646,20 +659,21 @@ function issuesHead(vm: PoiViewModel, h: RailHandlers): TemplateResult {
     vm.total === 0
       ? "None found"
       : `${vm.index >= 0 ? vm.index + 1 : 0}/${vm.total.toLocaleString()}`;
-  // Never let a capped list read as the whole story: say plainly that only the
-  // worst `retained` of `total` are navigable.
-  const truncated = vm.retained < vm.total;
+  // The detectors rank rather than threshold, so a list shorter than the match
+  // count is the NORMAL case, not an overflow. Say which it is: "worst 50 of
+  // 12,431" must never read as "found 50 problems".
+  const capped = vm.retained < vm.total;
   return html`
     <div class="d9-rail-head">
       <div class="d9-rail-title">
         <span class="d9-rail-heading">ISSUES</span>
         <span class="d9-rail-pos" data-poi-position>${positionLabel}</span>
       </div>
-      ${truncated
+      ${capped
         ? html`<div
             class="d9-rail-truncated"
             data-poi-truncated
-            title="Too many matches to list. The worst ${vm.retained.toLocaleString()} are shown, ranked by severity."
+            title="Ranked by severity: the worst ${vm.retained.toLocaleString()} of ${vm.total.toLocaleString()} matches are listed."
           >
             showing worst ${vm.retained.toLocaleString()} of
             ${vm.total.toLocaleString()}
@@ -685,6 +699,7 @@ function issuesHead(vm: PoiViewModel, h: RailHandlers): TemplateResult {
             )}
           </select>
         </label>
+        ${worstNControl(vm, h)}
         ${vm.filter === "spawn-delay" ? spawnThresholdControl(vm, h) : nothing}
         <span class="d9-rail-hint" title="Step issues with the n / p keys"
           ><kbd>n</kbd>/<kbd>p</kbd> step</span
@@ -695,8 +710,34 @@ function issuesHead(vm: PoiViewModel, h: RailHandlers): TemplateResult {
 }
 
 /**
- * Rendered only while the spawn-delay filter is active; the other detectors
- * have fixed thresholds, so the control would do nothing there.
+ * How many of the worst points to list. The detectors rank by severity, so this
+ * resizes the answer rather than filtering it - and it never re-runs a detector,
+ * because every choice is a prefix of the same ranked list.
+ */
+function worstNControl(vm: PoiViewModel, h: RailHandlers): TemplateResult {
+  return html`
+    <label class="d9-rail-worst-label">
+      <span class="d9-sr-only">How many issues to list</span>
+      <select
+        class="d9-rail-worst"
+        data-poi-worst
+        aria-label="How many issues to list"
+        title="How many of the worst issues to list"
+        @change=${(e: Event) => h.setWorstN((e.target as HTMLSelectElement).value)}
+      >
+        ${POI_WORST_N_CHOICES.map(
+          (n) => html`<option value=${n} ?selected=${n === vm.worstN}>
+            worst ${n}
+          </option>`,
+        )}
+      </select>
+    </label>
+  `;
+}
+
+/**
+ * Rendered only while the spawn-delay filter is active; it is the only detector
+ * that takes a floor at all, so the control would do nothing elsewhere.
  *
  * `change`, not `input`: each commit re-runs the detector over the whole trace.
  */
