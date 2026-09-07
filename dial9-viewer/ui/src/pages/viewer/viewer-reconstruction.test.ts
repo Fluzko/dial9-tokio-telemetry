@@ -357,6 +357,7 @@ describe("viewer deep-link reconstruction", () => {
     source.update("selection", {
       ...selection,
       selectedTaskId: poll.taskId,
+      taskScope: "spawn-location",
     });
     source.update("poi", {
       filter: "long-poll",
@@ -402,7 +403,6 @@ describe("viewer deep-link reconstruction", () => {
       expandedPollGroups: new Set(["cpu-0", "sched-1"]),
       pollFlamegraphSection: "sched",
       taskFlamegraphOpen: true,
-      taskScope: "spawn-location",
       pollWorkerZoom: ["root", "poll"],
       pollOffworkerZoom: ["off", "wait"],
       relatedCollapsed: { "Same task": true },
@@ -573,6 +573,10 @@ describe("viewer deep-link reconstruction", () => {
       taskDump: null,
       sidebarRange: null,
       hoveredWakerTaskId: null,
+      // Resets with the selection it scopes: "all from this spawn location"
+      // names a location in the REPLACED trace, and the new source clears the
+      // task it was anchored to.
+      taskScope: "task",
       spawnedTasksRange: null,
     });
     expect(state.poi).toEqual({
@@ -598,7 +602,6 @@ describe("viewer deep-link reconstruction", () => {
       expandedPollGroups: new Set(),
       pollFlamegraphSection: "cpu",
       taskFlamegraphOpen: false,
-      taskScope: "task",
       pollWorkerZoom: [],
       pollOffworkerZoom: [],
       relatedCollapsed: {},

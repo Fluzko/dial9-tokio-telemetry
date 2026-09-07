@@ -161,7 +161,10 @@ describe("viewer URL state: issues-rail (poi)", () => {
 describe("viewer URL state: task scope", () => {
   it("round-trips an open flamegraph and a non-default scope", () => {
     const { params, out } = roundTrip(
-      mkState({ view: { taskFlamegraphOpen: true, taskScope: "spawn-location" } }),
+      mkState({
+        view: { taskFlamegraphOpen: true },
+        selection: { taskScope: "spawn-location" },
+      }),
     );
     expect(params.get("task-flame")).toBe("1");
     expect(params.get("task-scope")).toBe("spawn-location");

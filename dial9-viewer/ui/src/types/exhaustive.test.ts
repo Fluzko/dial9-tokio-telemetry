@@ -176,6 +176,7 @@ const initialState: StoreState = {
     taskDump: null,
     sidebarRange: null,
     hoveredWakerTaskId: null,
+    taskScope: "task",
     spawnedTasksRange: null,
   },
   poi: { filter: "sched", spawnThresholdUs: 100, sortKey: "duration", sortDir: "desc", index: -1, railTab: "issues", taskSort: "total", taskSortDir: "desc", taskIndex: -1 },
@@ -216,7 +217,6 @@ const initialState: StoreState = {
     expandedPollGroups: new Set(["cpu-0"]),
     pollFlamegraphSection: "sched",
     taskFlamegraphOpen: true,
-    taskScope: "spawn-location",
     pollWorkerZoom: ["root", "poll"],
     pollOffworkerZoom: [],
     relatedCollapsed: { "Same task": true },
@@ -280,6 +280,7 @@ function populatedState(): StoreState {
       },
       sidebarRange: range,
       hoveredWakerTaskId: 7,
+      taskScope: "task",
       spawnedTasksRange: range,
     },
     transient: {

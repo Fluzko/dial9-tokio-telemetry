@@ -164,6 +164,7 @@ export const VIEWER_STATE_OWNERSHIP = {
     taskDump: url(P_TASK_DUMP),
     sidebarRange: url(P_REGION),
     hoveredWakerTaskId: transient,
+    taskScope: url(P_TASK_SCOPE),
     spawnedTasksRange: url(P_SPAWNED),
   },
   poi: {
@@ -204,7 +205,6 @@ export const VIEWER_STATE_OWNERSHIP = {
     expandedPollGroups: url(P_POLL_EXPANDED),
     pollFlamegraphSection: url(P_POLL_SECTION),
     taskFlamegraphOpen: url(P_TASK_FLAME),
-    taskScope: url(P_TASK_SCOPE),
     pollWorkerZoom: url(P_POLL_WORKER_ZOOM),
     pollOffworkerZoom: url(P_POLL_OFFWORKER_ZOOM),
     relatedCollapsed: url(P_RELATED_COLLAPSED),
@@ -384,7 +384,7 @@ export function projectViewerState(state: ReadonlyState<StoreState>): ViewState 
   if (view.inspectorTab !== inferredInspectorTab) vs.inspectorTab = view.inspectorTab;
   if (view.pollFlamegraphSection !== "cpu") vs.pollSection = view.pollFlamegraphSection;
   if (view.taskFlamegraphOpen) vs.taskFlame = true;
-  if (view.taskScope !== "task") vs.taskScope = view.taskScope;
+  if (sel.taskScope !== "task") vs.taskScope = sel.taskScope;
   if (view.expandedPollGroups.size > 0) {
     vs.expandedPollGroups = [...view.expandedPollGroups].sort();
   }
@@ -700,13 +700,18 @@ export function hydrateViewerStore(
   }
   if (Object.keys(uiPrefs).length > 0) store.update("uiPrefs", uiPrefs);
 
+  // The scope rides `selection` (the lanes consume it there), so it hydrates
+  // alongside it rather than with the Task tab's other control.
+  if (urlView.taskScope !== undefined) {
+    store.update("selection", { taskScope: urlView.taskScope });
+  }
+
   const view: Partial<StoreState["view"]> = {};
   if (urlView.fieldCharts !== undefined) {
     view.fieldCharts = urlView.fieldCharts;
   }
   if (urlView.inspectorTab !== undefined) view.inspectorTab = urlView.inspectorTab;
   if (urlView.taskFlame !== undefined) view.taskFlamegraphOpen = urlView.taskFlame;
-  if (urlView.taskScope !== undefined) view.taskScope = urlView.taskScope;
   if (urlView.pollSection !== undefined) {
     view.pollFlamegraphSection = urlView.pollSection;
   }

@@ -43,6 +43,7 @@ export function initialViewerState(): StoreState {
       taskDump: null,
       sidebarRange: null,
       hoveredWakerTaskId: null,
+      taskScope: "task",
       spawnedTasksRange: null,
     },
     // POI / issues-rail controls. Defaults: filter = "sched" and worst-first ON
@@ -97,7 +98,6 @@ export function initialViewerState(): StoreState {
       expandedPollGroups: new Set<string>(),
       pollFlamegraphSection: "cpu",
       taskFlamegraphOpen: false,
-      taskScope: "task",
       pollWorkerZoom: [],
       pollOffworkerZoom: [],
       relatedCollapsed: {},

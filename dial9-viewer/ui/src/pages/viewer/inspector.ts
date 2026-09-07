@@ -566,13 +566,13 @@ export function mountInspector(
   /** The scope actually in force: "spawn-location" needs a location to group
    *  by, so a task without one falls back rather than showing an empty tree. */
   function activeTaskScope(d: TaskDetailData): TaskScope {
-    const scope = state().view.taskScope;
+    const scope = state().selection.taskScope;
     return scope === "spawn-location" && d.spawnLocation == null ? "task" : scope;
   }
 
   function setTaskScope(scope: TaskScope): void {
-    if (state().view.taskScope === scope) return;
-    store.update("view", { taskScope: scope });
+    if (state().selection.taskScope === scope) return;
+    store.update("selection", { taskScope: scope });
   }
 
   /**

@@ -193,7 +193,7 @@ export function mountLanes(trackColumn: HTMLElement, store: ViewerStore): Mounte
       spawnScopeTaskIds: spawnScopeTaskIds(
         state.trace.trace,
         sel.selectedTaskId,
-        state.view.taskScope,
+        sel.taskScope,
       ),
       pinnedPoll: sel.pinnedEvent ? sel.pinnedEvent.poll : null,
       sharedMaxQ,

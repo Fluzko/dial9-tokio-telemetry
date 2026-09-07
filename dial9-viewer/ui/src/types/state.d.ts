@@ -165,6 +165,17 @@ export interface SelectionSlice {
   /** Waker task hovered in the task-detail panel (orange polls). */
   hoveredWakerTaskId: number | null;
   /**
+   * How much of the selection to consider: the selected task alone, or every
+   * task spawned at the same location. ONE scope drives both surfaces - the
+   * lanes tint the sibling tasks and the Task tab's flamegraph folds their
+   * samples - so the two can never disagree about what "all from this spawn
+   * location" means.
+   *
+   * It lives in `selection`, not `view`, because the LANES consume it: they
+   * subscribe to selection and would never repaint for a view-slice change.
+   */
+  taskScope: TaskScope;
+  /**
    * Time range drag-selected on the queue track. Dispatched on drag-release;
    * the inspector RENDERS the "tasks spawned in range" list from it
    * (queue-model.ts `computeSpawnedTasks` is the shared derivation). Distinct
@@ -409,13 +420,6 @@ export interface ViewerViewSlice {
   pollFlamegraphSection: "cpu" | "sched";
   /** Whether the Task tab's flamegraph is open (the "Flame" button). */
   taskFlamegraphOpen: boolean;
-  /**
-   * What the Task tab is looking at: the selected task alone, or every task
-   * spawned at the same location. ONE scope drives both surfaces - the lanes
-   * tint the sibling tasks and the flamegraph folds their samples - so the two
-   * can never disagree about what "all from this spawn location" means.
-   */
-  taskScope: TaskScope;
   pollWorkerZoom: readonly string[];
   pollOffworkerZoom: readonly string[];
   relatedCollapsed: Readonly<Record<string, boolean>>;
