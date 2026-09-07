@@ -249,6 +249,36 @@ describe("red-flag counts", () => {
   });
 });
 
+describe("zero-severity points are not points of interest", () => {
+  it("drops parks the kernel delayed for 0ns", () => {
+    const source = poiSourceFor(trace);
+    const all = poisForFilter(source, "sched", DEFAULT_SPAWN_DELAY_THRESHOLD_US, POI_WORST_N_ALL);
+    expect(all.length).toBeGreaterThan(0);
+    // The demo trace has 8,194 parks but only 148 real waits: a 0ns delay is
+    // not a delay, and without this the list is 98% non-events.
+    for (const poi of all) expect(poi.value).toBeGreaterThan(0);
+    expect(all.length).toBeLessThan(8_194);
+  });
+
+  it("every ranked detector reports only nonzero severity", () => {
+    const source = poiSourceFor(trace);
+    for (const filter of POI_FILTERS) {
+      if (isPredicateFilter(filter)) continue;
+      const list = poisForFilter(source, filter, DEFAULT_SPAWN_DELAY_THRESHOLD_US, POI_WORST_N_ALL);
+      const zeros = list.filter((p) => p.value <= 0);
+      expect(zeros.map((p) => p.type), `${filter} listed zero-severity points`).toEqual([]);
+    }
+  });
+
+  it("the excluded points leave the true count too, not just the list", () => {
+    const source = poiSourceFor(trace);
+    const total = poiMatchCount(source, "sched", DEFAULT_SPAWN_DELAY_THRESHOLD_US, POI_WORST_N_ALL);
+    const all = poisForFilter(source, "sched", DEFAULT_SPAWN_DELAY_THRESHOLD_US, POI_WORST_N_ALL);
+    // Otherwise "of N" would still be counting the non-events.
+    expect(total).toBe(all.length);
+  });
+});
+
 describe("the denominator, and showing everything", () => {
   const vm = (over: Partial<PoiSlice>): ReturnType<typeof derivePoiViewModel> =>
     derivePoiViewModel(trace, { ...DEFAULT_POI, ...over }, trace.minTs ?? 0);

@@ -588,9 +588,10 @@ export class ColumnarWorkerSpans {
       if (filterType === "sched") {
         for (let i = 0; i < c.nParks; i++) {
           const sw = c.parkSchedWait[i]!;
-          // NaN = the park carries no kernel timing: missing data, not a zero
-          // delay, so it is skipped rather than ranked at the bottom.
-          if (hasSchedWait && !Number.isNaN(sw)) {
+          // NaN = the park carries no kernel timing (missing data); zero = the
+          // kernel kept it off-CPU for no time, which is not a delay. Neither is
+          // a point of interest, and the zeros dominate a healthy trace.
+          if (hasSchedWait && sw > 0) {
             add({
               time: c.parkEnd[i]! - sw, worker: w, type: "sched", value: sw,
               span: { start: c.parkStart[i]!, end: c.parkEnd[i]! },
@@ -600,7 +601,7 @@ export class ColumnarWorkerSpans {
       } else if (filterType === "long-poll") {
         for (let i = 0; i < c.n; i++) {
           const durMs = (c.end[i]! - c.start[i]!) / 1e6;
-          add({ time: c.start[i]!, worker: w, type: "long-poll", value: durMs, span: pollSpanForJump(c, i) });
+          if (durMs > 0) add({ time: c.start[i]!, worker: w, type: "long-poll", value: durMs, span: pollSpanForJump(c, i) });
         }
       } else if (filterType === "cpu-sampled") {
         const cpuOff = c.cpuOff, schedOff = c.schedOff;
@@ -616,6 +617,7 @@ export class ColumnarWorkerSpans {
 
     if (filterType === "wake-delay") {
       for (const sd of schedDelays) {
+        if (sd.delay <= 0) continue;
         add({ time: sd.wakeTime, worker: sd.worker, type: "wake-delay", value: sd.delay / 1000, span: sd.poll, schedDelay: sd });
       }
     }

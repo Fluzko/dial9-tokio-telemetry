@@ -9,6 +9,12 @@
 // outliers under thousands of borderline rows on a busy trace, and showed an
 // empty rail on a fast one whose worst poll was 800us.
 //
+// Ranking still excludes ZERO-severity points, which is not a cutoff in
+// disguise: a park the kernel delayed for 0ns was not delayed, and 98% of parks
+// on a healthy trace are exactly that. The predicate detectors keep theirs,
+// since being sampled or uninstrumented is a fact about the poll, not a
+// severity.
+//
 // The detectors run over the RESIDENT `trace` slice. Whole-trace loads make
 // the POI set complete; when segment windowing feeds a partial trace, the
 // count is over the resident window only - consumers must not present it as

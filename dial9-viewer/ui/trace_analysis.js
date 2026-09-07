@@ -1032,9 +1032,11 @@
 
       if (filterType === "sched") {
         for (const s of spans.parks) {
-          // A NaN schedWait means the park carries no kernel timing at all -
-          // missing data, not a zero delay, so it is skipped rather than ranked.
-          if (hasSchedWait && !Number.isNaN(s.schedWait)) {
+          // NaN = the park carries no kernel timing at all (missing data);
+          // zero = the kernel kept it off-CPU for no time, which is not a delay.
+          // Neither is a point of interest, and on a healthy trace the zeros are
+          // the overwhelming majority of parks.
+          if (hasSchedWait && s.schedWait > 0) {
             const wakeupShouldBe = s.end - s.schedWait;
             add({
               time: wakeupShouldBe,
@@ -1047,13 +1049,16 @@
         }
       } else if (filterType === "long-poll") {
         for (const s of spans.polls) {
-          add({
-            time: s.start,
-            worker: w,
-            type: "long-poll",
-            value: (s.end - s.start) / 1e6,
-            span: s,
-          });
+          const durMs = (s.end - s.start) / 1e6;
+          if (durMs > 0) {
+            add({
+              time: s.start,
+              worker: w,
+              type: "long-poll",
+              value: durMs,
+              span: s,
+            });
+          }
         }
       } else if (filterType === "cpu-sampled") {
         for (const s of spans.polls) {
@@ -1076,6 +1081,7 @@
 
     if (filterType === "wake-delay") {
       for (const sd of schedDelays) {
+        if (sd.delay <= 0) continue;
         add({
           time: sd.wakeTime,
           worker: sd.worker,
