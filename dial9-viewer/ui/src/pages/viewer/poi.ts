@@ -123,18 +123,16 @@ export interface PoiSource {
   hasSchedWait: boolean;
   taskInstrumented: Map<number, boolean>;
   taskSpawnTimes: Map<number, number>;
-  /** Lazy detector output cache. Keyed by `detectorCacheKey`, which folds in
-   *  the threshold for the detectors that take one, so two thresholds never
-   *  share a result. The list holds the worst POI_DETECTOR_LIMIT; `matched` is
-   *  the true pre-cap count, and `prefixes` memoizes the per-N slices so a
-   *  caller that re-reads the same length gets the same array back. */
+  /** Lazy detector output cache, keyed by `detectorCacheKey`: the filter, the
+   *  threshold for detectors that take one, and the requested length. `matched`
+   *  is the true pre-cap count, so a capped list never understates the
+   *  population it came from. */
   readonly _byFilter: Map<string, DetectorResult>;
 }
 
 interface DetectorResult {
   list: PointOfInterest[];
   matched: number;
-  prefixes: Map<number, PointOfInterest[]>;
 }
 
 function usesSpawnThreshold(filter: PointOfInterestType): boolean {
@@ -143,27 +141,36 @@ function usesSpawnThreshold(filter: PointOfInterestType): boolean {
 
 /** Only the threshold-sensitive detector folds the threshold into its key, so
  *  moving the input never invalidates the others. */
-function detectorCacheKey(filter: PointOfInterestType, spawnThresholdUs: number): string {
-  return usesSpawnThreshold(filter) ? `${filter}:${spawnThresholdUs}` : filter;
+function detectorCacheKey(
+  filter: PointOfInterestType,
+  spawnThresholdUs: number,
+  worstN: number,
+): string {
+  const base = usesSpawnThreshold(filter) ? `${filter}:${spawnThresholdUs}` : filter;
+  return `${base}@${worstN}`;
 }
 
+/**
+ * The "show everything" choice, and the ceiling that keeps the rail alive while
+ * doing it.
+ *
+ * With no cutoff, a detector can match every poll in the trace - millions on a
+ * 13M-event one, enough to exhaust the tab if each became a row. So "all" means
+ * "as many as the rail can safely hold"; past that the list is capped and the
+ * rail says so rather than pretending it showed everything.
+ */
+export const POI_WORST_N_ALL = 50_000;
+
 /** The list-length choices the rail offers, smallest first. */
-export const POI_WORST_N_CHOICES: readonly number[] = [10, 50, 200];
+export const POI_WORST_N_CHOICES: readonly number[] = [10, 50, 200, POI_WORST_N_ALL];
 
 /** How many rows the rail shows before the user picks otherwise. */
 export const POI_WORST_N_DEFAULT = 50;
 
-/**
- * What a detector is actually asked for, regardless of the selected N.
- *
- * Every choice is a prefix of the same severity-ranked list, so running the
- * detector once at the largest one lets a change of N be a slice rather than a
- * rescan of the trace. It is also the ceiling that keeps the rail alive on a
- * big trace: with no cutoff, "Uninstrumented Polls" matches every poll of an
- * uninstrumented task - millions on a 13M-event trace, enough to exhaust the
- * tab if each became a row.
- */
-export const POI_DETECTOR_LIMIT = Math.max(...POI_WORST_N_CHOICES);
+/** The `<option>` text for a list length. */
+export function worstNLabel(n: number): string {
+  return n === POI_WORST_N_ALL ? "all" : `worst ${n}`;
+}
 
 /** Clamp a DOM/URL list length onto an offered choice; null when unusable, so
  *  a malformed value never silently resizes the rail. */
@@ -211,8 +218,9 @@ function detectorResult(
   source: PoiSource,
   filter: PointOfInterestType,
   spawnThresholdUs: number,
+  worstN: number,
 ): DetectorResult {
-  const cacheKey = detectorCacheKey(filter, spawnThresholdUs);
+  const cacheKey = detectorCacheKey(filter, spawnThresholdUs, worstN);
   const cached = source._byFilter.get(cacheKey);
   if (cached !== undefined) return cached;
   // One live entry per threshold-sensitive detector: the input is a spinner, so
@@ -229,7 +237,7 @@ function detectorResult(
     taskInstrumented: source.taskInstrumented,
     taskSpawnTimes: source.taskSpawnTimes,
     spawnDelayThresholdUs: spawnThresholdUs,
-    limit: POI_DETECTOR_LIMIT,
+    limit: worstN,
     onTotal: (n: number) => {
       matched = n;
     },
@@ -244,16 +252,15 @@ function detectorResult(
   const result: DetectorResult = {
     list,
     matched: matched >= 0 ? matched : list.length,
-    prefixes: new Map(),
   };
   source._byFilter.set(cacheKey, result);
   return result;
 }
 
 /**
- * The worst `worstN` points of one kind, severity-ranked. The detector always
- * runs at POI_DETECTOR_LIMIT and every choice is a prefix of that list, so
- * changing N slices instead of rescanning.
+ * The worst `worstN` points of one kind, severity-ranked. Each length is its own
+ * detector run, memoized: "all" retains up to POI_WORST_N_ALL, and making every
+ * length a prefix of that would charge a 10-row view for a 50,000-row scan.
  */
 export function poisForFilter(
   source: PoiSource,
@@ -261,16 +268,7 @@ export function poisForFilter(
   spawnThresholdUs: number = DEFAULT_SPAWN_DELAY_THRESHOLD_US,
   worstN: number = POI_WORST_N_DEFAULT,
 ): PointOfInterest[] {
-  const result = detectorResult(source, filter, spawnThresholdUs);
-  if (worstN >= result.list.length) return result.list;
-  // Memoized per length: the rail re-reads this every render, and a fresh slice
-  // each time would defeat the identity checks the render caches depend on.
-  let prefix = result.prefixes.get(worstN);
-  if (prefix === undefined) {
-    prefix = result.list.slice(0, worstN);
-    result.prefixes.set(worstN, prefix);
-  }
-  return prefix;
+  return detectorResult(source, filter, spawnThresholdUs, worstN).list;
 }
 
 /**
@@ -283,8 +281,9 @@ export function poiMatchCount(
   source: PoiSource,
   filter: PointOfInterestType,
   spawnThresholdUs: number = DEFAULT_SPAWN_DELAY_THRESHOLD_US,
+  worstN: number = POI_WORST_N_DEFAULT,
 ): number {
-  return detectorResult(source, filter, spawnThresholdUs).matched;
+  return detectorResult(source, filter, spawnThresholdUs, worstN).matched;
 }
 
 /** Per-detector counts for the red-flags summary chip. Zero-count detectors
@@ -297,6 +296,83 @@ export function redFlagCounts(
     type,
     count: poiMatchCount(source, type, spawnThresholdUs),
   }));
+}
+
+/**
+ * Detectors whose COUNT is a fact about the trace rather than an artefact of
+ * ranking: they select on a predicate (this poll carries samples; this task was
+ * spawned uninstrumented), so "9,136 of them" means something.
+ *
+ * Every other detector now admits every candidate and ranks it, so its count is
+ * just the population - "56,125 long polls" on a trace whose worst poll is
+ * 40us. Those report their worst VALUE instead.
+ */
+const PREDICATE_FILTERS: ReadonlySet<PointOfInterestType> = new Set([
+  "cpu-sampled",
+  "uninstrumented",
+]);
+
+export function isPredicateFilter(type: PointOfInterestType): boolean {
+  return PREDICATE_FILTERS.has(type);
+}
+
+/**
+ * Whether the rail should print "of N" beside the list length. True when the
+ * detector genuinely narrowed the population, or when the list was cut short at
+ * the ceiling - the two cases where the number tells the reader something they
+ * cannot infer.
+ */
+export function showsTotal(
+  filter: PointOfInterestType,
+  worstN: number,
+  total: number,
+): boolean {
+  if (worstN === POI_WORST_N_ALL && total > POI_WORST_N_ALL) return true;
+  return isPredicateFilter(filter) && total > worstN;
+}
+
+/** One detector's line in the red-flags chip. */
+export interface RedFlag {
+  type: PointOfInterestType;
+  /** True when `count` stands on its own (a predicate detector). */
+  counted: boolean;
+  /** The true match count. Meaningful on its own only when `counted`. */
+  count: number;
+  /** Severity of the worst match, in nanoseconds; null when nothing matched. */
+  worstNs: number | null;
+}
+
+/**
+ * The red-flags summary: a count for the predicate detectors, the worst
+ * severity for the ranked ones. Detectors with nothing to report are dropped
+ * here rather than by the caller, since "nothing to report" now differs by kind.
+ */
+export function redFlagSummary(
+  source: PoiSource,
+  spawnThresholdUs: number = DEFAULT_SPAWN_DELAY_THRESHOLD_US,
+): RedFlag[] {
+  const out: RedFlag[] = [];
+  for (const type of POI_FILTERS) {
+    const count = poiMatchCount(source, type, spawnThresholdUs);
+    if (count === 0) continue;
+    const worst = poisForFilter(source, type, spawnThresholdUs, 1)[0];
+    out.push({
+      type,
+      counted: isPredicateFilter(type),
+      count,
+      worstNs: worst === undefined ? null : valueNs(worst),
+    });
+  }
+  return out;
+}
+
+/** The chip's text for one detector. */
+export function redFlagLabel(flag: RedFlag): string {
+  if (flag.counted) {
+    return `${flag.count} ${kindLabel(flag.type)}${flag.count === 1 ? "" : "s"}`;
+  }
+  const worst = flag.worstNs === null ? "n/a" : formatHumanDuration(flag.worstNs);
+  return `worst ${kindLabel(flag.type)} ${worst}`;
 }
 
 // ── Display sort (the four sortable columns) ─────────────────────────────
@@ -552,6 +628,18 @@ export interface PoiViewModel {
   retained: number;
   /** The selected list length - one of POI_WORST_N_CHOICES. */
   worstN: number;
+  /**
+   * Whether `total` is worth showing next to the list length.
+   *
+   * For a detector that ranks the whole population, "worst 50 of 56,125" invites
+   * reading 56,125 as a count of problems when it is just "how many polls
+   * exist". The denominator earns its place only when the detector actually
+   * selected a subset, or when the list hit POI_WORST_N_ALL and the user needs
+   * to know it was cut short.
+   */
+  showTotal: boolean;
+  /** True when "all" was asked for and the population exceeded the ceiling. */
+  cappedAtCeiling: boolean;
   /** Per-detector counts for the red-flags summary chip. */
   redFlags: { type: PointOfInterestType; count: number }[];
   spawnThresholdUs: number;
@@ -600,6 +688,8 @@ export function derivePoiViewModel(
       total: 0,
       retained: 0,
       worstN: poi.worstN,
+      showTotal: false,
+      cappedAtCeiling: false,
       redFlags: [],
       spawnThresholdUs: poi.spawnThresholdUs,
       hasSpawnTimes: false,
@@ -607,6 +697,7 @@ export function derivePoiViewModel(
   }
   const source = poiSourceFor(trace);
   const filtered = poisForFilter(source, poi.filter, poi.spawnThresholdUs, poi.worstN);
+  const total = poiMatchCount(source, poi.filter, poi.spawnThresholdUs, poi.worstN);
   const sorted = sortPois(filtered, poi.sortKey, poi.sortDir);
   const peak = peakValue(sorted);
   const index = poi.index < sorted.length ? poi.index : -1;
@@ -633,9 +724,11 @@ export function derivePoiViewModel(
     rows,
     windowStart: start,
     sorted,
-    total: poiMatchCount(source, poi.filter, poi.spawnThresholdUs),
+    total,
     retained: sorted.length,
     worstN: poi.worstN,
+    showTotal: showsTotal(poi.filter, poi.worstN, total),
+    cappedAtCeiling: poi.worstN === POI_WORST_N_ALL && total > POI_WORST_N_ALL,
     redFlags: redFlagCounts(source, poi.spawnThresholdUs).filter((r) => r.count > 0),
     spawnThresholdUs: poi.spawnThresholdUs,
     hasSpawnTimes: source.taskSpawnTimes.size > 0,

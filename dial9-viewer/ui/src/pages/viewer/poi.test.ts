@@ -40,8 +40,15 @@ import {
   durationLabel,
   filterLabel,
   kindLabel,
+  isPredicateFilter,
+  parsePoiWorstN,
   peakValue,
+  poiMatchCount,
+  POI_WORST_N_ALL,
   POI_WORST_N_CHOICES,
+  worstNLabel,
+  redFlagLabel,
+  redFlagSummary,
   POI_WORST_N_DEFAULT,
   poiJump,
   poisForFilter,
@@ -239,6 +246,107 @@ describe("red-flag counts", () => {
         trace.minTs ?? 0,
       ).redFlags.find((r) => r.type === "spawn-delay")?.count ?? 0;
     expect(at(0)).toBeGreaterThan(at(1e6));
+  });
+});
+
+describe("the denominator, and showing everything", () => {
+  const vm = (over: Partial<PoiSlice>): ReturnType<typeof derivePoiViewModel> =>
+    derivePoiViewModel(trace, { ...DEFAULT_POI, ...over }, trace.minTs ?? 0);
+
+  it("hides 'of N' for a detector that ranks the whole population", () => {
+    // "worst 50 of 56,125" reads as 56,125 problems; it is just the poll count.
+    const v = vm({ filter: "long-poll", worstN: 50 });
+    expect(v.total).toBeGreaterThan(v.retained);
+    expect(v.showTotal).toBe(false);
+  });
+
+  it("shows 'of N' for a detector that genuinely narrowed the population", () => {
+    const v = vm({ filter: "uninstrumented", worstN: 50 });
+    expect(v.total).toBeGreaterThan(v.retained);
+    expect(v.showTotal).toBe(true);
+  });
+
+  it("lists everything when 'all' fits under the ceiling", () => {
+    const v = vm({ filter: "spawn-delay", worstN: POI_WORST_N_ALL });
+    expect(v.retained).toBe(v.total);
+    expect(v.cappedAtCeiling).toBe(false);
+    // Nothing was withheld, so there is no denominator to print.
+    expect(v.showTotal).toBe(false);
+  });
+
+  it("'all' reaches past the fixed choices", () => {
+    const capped = vm({ filter: "long-poll", worstN: 200 });
+    const all = vm({ filter: "long-poll", worstN: POI_WORST_N_ALL });
+    expect(all.retained).toBeGreaterThan(capped.retained);
+    expect(all.retained).toBe(Math.min(all.total, POI_WORST_N_ALL));
+  });
+
+  it("says so when 'all' hits the ceiling", () => {
+    const v = vm({ filter: "long-poll", worstN: POI_WORST_N_ALL });
+    if (v.total > POI_WORST_N_ALL) {
+      expect(v.cappedAtCeiling).toBe(true);
+      expect(v.showTotal).toBe(true);
+    } else {
+      expect(v.cappedAtCeiling).toBe(false);
+    }
+  });
+
+  it("offers 'all' as a choice and labels it", () => {
+    expect(POI_WORST_N_CHOICES).toContain(POI_WORST_N_ALL);
+    expect(worstNLabel(POI_WORST_N_ALL)).toBe("all");
+    expect(worstNLabel(10)).toBe("worst 10");
+    expect(parsePoiWorstN(String(POI_WORST_N_ALL))).toBe(POI_WORST_N_ALL);
+  });
+});
+
+describe("red-flag summary (the toolbar chip)", () => {
+  const summary = (): ReturnType<typeof redFlagSummary> =>
+    redFlagSummary(poiSourceFor(trace), DEFAULT_SPAWN_DELAY_THRESHOLD_US);
+
+  it("reports the WORST value for a ranked detector, never its population", () => {
+    const longPoll = summary().find((r) => r.type === "long-poll");
+    expect(longPoll).toBeDefined();
+    expect(longPoll!.counted).toBe(false);
+    // The regression this pins: with no cutoff, "long-poll" matches every poll
+    // in the trace, so rendering its COUNT read as "56,125 problems" on a trace
+    // whose polls are almost all microseconds.
+    expect(longPoll!.count).toBe(
+      poiMatchCount(poiSourceFor(trace), "long-poll", DEFAULT_SPAWN_DELAY_THRESHOLD_US),
+    );
+    expect(redFlagLabel(longPoll!)).toMatch(/^worst long poll /);
+    expect(redFlagLabel(longPoll!)).not.toContain(String(longPoll!.count));
+  });
+
+  it("keeps the count for a predicate detector, whose count is a real fact", () => {
+    for (const type of ["cpu-sampled", "uninstrumented"] as const) {
+      const flag = summary().find((r) => r.type === type);
+      if (flag === undefined) continue;
+      expect(flag.counted, type).toBe(true);
+      expect(redFlagLabel(flag), type).toContain(String(flag.count));
+    }
+  });
+
+  it("classifies every detector as ranked or predicate", () => {
+    for (const type of POI_FILTERS) {
+      expect(typeof isPredicateFilter(type), type).toBe("boolean");
+    }
+    expect(isPredicateFilter("long-poll")).toBe(false);
+    expect(isPredicateFilter("sched")).toBe(false);
+    expect(isPredicateFilter("wake-delay")).toBe(false);
+    expect(isPredicateFilter("spawn-delay")).toBe(false);
+    expect(isPredicateFilter("uninstrumented")).toBe(true);
+    expect(isPredicateFilter("cpu-sampled")).toBe(true);
+  });
+
+  it("drops a detector with no matches at all", () => {
+    for (const flag of summary()) expect(flag.count).toBeGreaterThan(0);
+  });
+
+  it("carries the worst severity of the ranked list it summarizes", () => {
+    const source = poiSourceFor(trace);
+    const sched = summary().find((r) => r.type === "sched");
+    const worstRow = poisForFilter(source, "sched", DEFAULT_SPAWN_DELAY_THRESHOLD_US, 1)[0];
+    expect(sched!.worstNs).toBe(valueNs(worstRow!));
   });
 });
 

@@ -29,6 +29,7 @@ import {
   parseSpawnThresholdUs,
   poiJump,
   stepIndex,
+  worstNLabel,
   type PoiViewModel,
 } from "./poi.js";
 import {
@@ -660,33 +661,37 @@ function issuesHead(vm: PoiViewModel, h: RailHandlers): TemplateResult {
       ? "None found"
       : `${vm.index >= 0 ? vm.index + 1 : 0}/${vm.total.toLocaleString()}`;
   // The detectors rank rather than threshold, so a list shorter than the match
-  // count is the NORMAL case, not an overflow. Say which it is: "worst 50 of
-  // 12,431" must never read as "found 50 problems".
-  const capped = vm.retained < vm.total;
+  // count is the NORMAL case, not an overflow. The denominator is printed only
+  // when it tells the reader something (vm.showTotal), because "worst 50 of
+  // 56,125" otherwise reads as "found 56,125 problems".
+  const showing = vm.retained < vm.total;
   return html`
     <div class="d9-rail-head">
       <div class="d9-rail-title">
         <span class="d9-rail-heading">ISSUES</span>
         <span class="d9-rail-pos" data-poi-position>${positionLabel}</span>
       </div>
-      ${capped
+      ${showing
         ? html`<div
             class="d9-rail-truncated"
             data-poi-truncated
-            title="Ranked by severity: the worst ${vm.retained.toLocaleString()} of ${vm.total.toLocaleString()} matches are listed."
+            title=${vm.cappedAtCeiling
+              ? `Too many to list: the worst ${vm.retained.toLocaleString()} of ${vm.total.toLocaleString()} are shown.`
+              : `Ranked by severity: the worst ${vm.retained.toLocaleString()} are shown.`}
           >
-            showing worst ${vm.retained.toLocaleString()} of
-            ${vm.total.toLocaleString()}
+            showing worst ${vm.retained.toLocaleString()}${vm.showTotal
+              ? ` of ${vm.total.toLocaleString()}`
+              : ""}
           </div>`
         : nothing}
       <div class="d9-rail-controls">
         <label class="d9-rail-filter-label">
-          <span class="d9-sr-only">Point-of-interest filter</span>
+          <span class="d9-sr-only">Point-of-interest kind</span>
           <select
             class="d9-rail-filter"
             data-poi-filter
-            aria-label="Point-of-interest filter"
-            title="Which class of issue to list"
+            aria-label="Point-of-interest kind"
+            title="Which kind of point to list, worst first"
             @change=${(e: Event) => {
               const filter = parsePoiFilter((e.target as HTMLSelectElement).value);
               if (filter !== null) h.setFilter(filter);
@@ -727,7 +732,7 @@ function worstNControl(vm: PoiViewModel, h: RailHandlers): TemplateResult {
       >
         ${POI_WORST_N_CHOICES.map(
           (n) => html`<option value=${n} ?selected=${n === vm.worstN}>
-            worst ${n}
+            ${worstNLabel(n)}
           </option>`,
         )}
       </select>
