@@ -25,6 +25,7 @@ import {
   EVENT_TYPES,
   computePollWakes,
   computeRuntimeGroups,
+  docsRsUrl,
   formatHumanDuration,
 } from "../../lib/trace/index.js";
 import type {
@@ -312,6 +313,34 @@ export function spawnLocLabel(location: string | null): string | null {
   const file = location.replace(/.*\//, "");
   const m = /^(.*?):(\d+):\d+$/.exec(file);
   return m ? `${m[1]}:${m[2]}` : file;
+}
+
+/**
+ * What the gutter's spawn location should DO when clicked.
+ *
+ * A spawn location is a path on the machine that recorded the trace, so there is
+ * no general way to open "the file". Two cases are actually reachable:
+ *
+ *   - a dependency path carries its crate and version, so it resolves to the
+ *     exact source line on docs.rs (the same link the flamegraph offers on a
+ *     frame);
+ *   - first-party code identifies no published artifact, and the trace records
+ *     neither repository nor commit, so the honest fallback is handing the user
+ *     the path to open themselves.
+ */
+export interface SpawnLocLink {
+  /** The trimmed `file.rs:line` label. */
+  label: string;
+  /** The full recorded path: the tooltip, and what "copy" yields. */
+  full: string;
+  /** docs.rs source URL, or null when the path names no published crate. */
+  href: string | null;
+}
+
+export function spawnLocLink(location: string | null): SpawnLocLink | null {
+  const label = spawnLocLabel(location);
+  if (label === null || location === null) return null;
+  return { label, full: location, href: docsRsUrl(location) };
 }
 
 // ── Per-frame render model (viewport-dependent) ───────────────────────────

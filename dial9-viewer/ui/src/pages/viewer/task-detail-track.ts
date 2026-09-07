@@ -40,9 +40,10 @@ import {
   computeTaskDetailData,
   formatTaskDetailSummary,
   hitRegionAt,
-  spawnLocLabel,
+  spawnLocLink,
   statusTextAt,
   wakeRegionAt,
+  type SpawnLocLink,
   type TaskDetailData,
   type TaskDetailRenderModel,
   type TaskDetailWindow,
@@ -200,7 +201,7 @@ export function createTaskDetailTrack(store: ViewerStore): TaskDetailTrackContro
     const data = taskDetailData();
     const identity =
       data.taskId !== null ? formatTaskDetailSummary(data) : track.label;
-    const spawnLoc = spawnLocLabel(data.spawnLocation);
+    const spawn = spawnLocLink(data.spawnLocation);
     return html`
       <div
         class="d9-track d9-track--task-detail"
@@ -214,13 +215,7 @@ export function createTaskDetailTrack(store: ViewerStore): TaskDetailTrackContro
                 >Task 0x${data.taskId.toString(16)}</span
               >`
             : nothing}
-          ${spawnLoc !== null
-            ? html`<span
-                class="d9-task-detail-spawn"
-                title=${data.spawnLocation ?? ""}
-                >${spawnLoc}</span
-              >`
-            : nothing}
+          ${spawn === null ? nothing : spawnTemplate(spawn)}
         </div>
         <div class="d9-track-canvas-wrap d9-task-detail-wrap">
           <span
@@ -240,6 +235,45 @@ export function createTaskDetailTrack(store: ViewerStore): TaskDetailTrackContro
         </div>
       </div>
     `;
+  }
+
+  /**
+   * The spawn location as an actionable control: a docs.rs source link when the
+   * path names a published crate, else a button that copies the full path. The
+   * label is trimmed to fit the gutter either way, so the tooltip carries the
+   * whole thing.
+   */
+  function spawnTemplate(spawn: SpawnLocLink): TemplateResult {
+    if (spawn.href !== null) {
+      return html`<a
+        class="d9-task-detail-spawn is-link"
+        href=${spawn.href}
+        target="_blank"
+        rel="noopener noreferrer"
+        title=${`${spawn.full}\nOpen on docs.rs`}
+        >${spawn.label}</a
+      >`;
+    }
+    return html`<button
+      type="button"
+      class="d9-task-detail-spawn is-copy"
+      title=${`${spawn.full}\nCopy path`}
+      @click=${(e: MouseEvent) => copySpawnLoc(e, spawn.full)}
+    >
+      ${spawn.label}
+    </button>`;
+  }
+
+  /** Copy the full path, flashing the label. Imperative, like the inspector's
+   *  own copy buttons - no store round-trip for an 800ms affordance. */
+  function copySpawnLoc(e: MouseEvent, value: string): void {
+    const btn = e.currentTarget as HTMLButtonElement;
+    void navigator.clipboard?.writeText(value);
+    const previous = btn.textContent;
+    btn.textContent = "copied ✓";
+    window.setTimeout(() => {
+      btn.textContent = previous;
+    }, 800);
   }
 
   // ── Canvas interaction (status, waker hover/click) ─────────────────────

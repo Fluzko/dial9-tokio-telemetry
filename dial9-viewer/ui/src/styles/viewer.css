@@ -1050,7 +1050,23 @@ body {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    /* Both variants are interactive; neutralise the button's chrome so the
+       link and the copy button read as one control. */
+    background: none;
+    border: none;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+    text-decoration: none;
+    display: block;
+    width: 100%;
 }
+.d9-task-detail-spawn:hover { color: var(--d9-fg); text-decoration: underline; }
+.d9-task-detail-spawn:focus-visible {
+    outline: 2px solid var(--d9-accent);
+    outline-offset: 1px;
+}
+.d9-task-detail-spawn.is-link { color: #7fb3ff; }
 .d9-task-detail-wrap { position: relative; }
 .d9-task-detail-status {
     position: absolute;

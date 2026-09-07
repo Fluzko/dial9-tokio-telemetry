@@ -2365,8 +2365,12 @@
      */
     function _docsRsUrl(location) {
         if (!location) return null;
+        // A stack frame's location ends at `:line`, but a task's spawn location
+        // carries `:line:col`. Without the optional column group the column is
+        // read as the line and the real line leaks into the file path, yielding
+        // ".../tokio.rs:115.html#9" instead of ".../tokio.rs.html#115".
         const m = location.match(
-            /\/([a-z][a-z0-9_-]*)-(\d+\.\d+[^/]*)\/(.+?)(?::(\d+))?$/,
+            /\/([a-z][a-z0-9_-]*)-(\d+\.\d+[^/]*)\/(.+?)(?::(\d+))?(?::\d+)?$/,
         );
         if (!m) return null;
         const [, crate_, version, rawPath, line] = m;
@@ -2375,6 +2379,17 @@
         let url = `https://docs.rs/${crate_}/${version}/src/${crateSrc}/${path}.html`;
         if (line) url += `#${line}`;
         return url;
+    }
+
+    /**
+     * The docs.rs source URL for a `file.rs:line[:col]` location, or null when
+     * the path does not identify a published crate (first-party code, whose
+     * repository and commit the trace does not record).
+     * @param {string|null} location
+     * @returns {string|null}
+     */
+    function docsRsUrl(location) {
+        return _docsRsUrl(location);
     }
 
     /**
@@ -2524,6 +2539,7 @@
             fetchTracesStream,
             canStreamDecode,
             formatFrame,
+            docsRsUrl,
             symbolizeChain,
             deduplicateSamples,
             deriveBlockInPlaceGaps,
@@ -2547,6 +2563,7 @@
             fetchTracesStream,
             canStreamDecode,
             formatFrame,
+            docsRsUrl,
             symbolizeChain,
             deduplicateSamples,
             deriveBlockInPlaceGaps,
