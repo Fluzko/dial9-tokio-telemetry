@@ -43,12 +43,9 @@ beforeAll(async () => {
 function sampledLocation(): { location: string; taskId: number } {
   for (const s of trace.cpuSamples) {
     if (s.spawnLoc == null || s.source === 1 || s.callchain.length === 0) continue;
-    const location = trace.spawnLocations.get(s.spawnLoc);
-    if (location == null) continue;
-    for (const [taskId, locId] of trace.taskSpawnLocs) {
-      if (locId != null && trace.spawnLocations.get(locId) === location) {
-        return { location, taskId };
-      }
+    const location = s.spawnLoc;
+    for (const taskId of trace.taskSpawnLocs.keys()) {
+      if (spawnLocationOf(trace, taskId) === location) return { location, taskId };
     }
   }
   throw new Error("demo trace has no sampled spawn location");
@@ -112,10 +109,9 @@ describe("spawn-location grouping (demo trace)", () => {
     const samples = spawnLocationCpuSamples(trace, location);
     expect(samples.length).toBeGreaterThan(0);
     for (const s of samples) {
-      // Resolve rather than compare directly: a sample carries the spawn
-      // location's ID, which only equals the readable string because
-      // `spawnLocations` happens to be an identity map today.
-      expect(trace.spawnLocations.get(s.spawnLoc!)).toBe(location);
+      // attachCpuSamples stamps the poll's RESOLVED location, so this is a
+      // plain string compare - no lookup through `spawnLocations`.
+      expect(s.spawnLoc).toBe(location);
       expect(s.source).not.toBe(1);
       expect(s.callchain.length).toBeGreaterThan(0);
     }
@@ -141,6 +137,42 @@ describe("spawn-location grouping (demo trace)", () => {
   });
 });
 
+describe("spawn-location grouping reads the trace maps directly", () => {
+  it("matches a sample's resolved spawnLoc without routing through spawnLocations", () => {
+    const stub = {
+      // Deliberately EMPTY: attachCpuSamples stamps the resolved location on
+      // the sample, so folding must not depend on this map at all.
+      spawnLocations: new Map<string, string>(),
+      cpuSamples: [
+        sample({ spawnLoc: "src/a.rs:1" }),
+        sample({ spawnLoc: "src/b.rs:2" }),
+        sample({ spawnLoc: null }),
+      ],
+    } as unknown as ParsedTrace;
+    const kept = spawnLocationCpuSamples(stub, "src/a.rs:1");
+    expect(kept).toHaveLength(1);
+    expect(kept[0]!.spawnLoc).toBe("src/a.rs:1");
+  });
+
+  it("builds the sibling set from taskSpawnLocs, not the task index", () => {
+    // No worker spans and no aggregates: taskIndexFor would throw on this stub,
+    // which is the point - the lanes call this from a paint frame.
+    const stub = {
+      taskSpawnLocs: new Map([
+        [1, "src/a.rs:1"],
+        [2, "src/a.rs:1"],
+        [3, "src/b.rs:2"],
+      ]),
+      spawnLocations: new Map([
+        ["src/a.rs:1", "src/a.rs:1"],
+        ["src/b.rs:2", "src/b.rs:2"],
+      ]),
+    } as unknown as ParsedTrace;
+    expect([...taskIdsAtSpawnLocation(stub, "src/a.rs:1")]).toEqual([1, 2]);
+    expect(tasksAtSpawnLocation(stub, "src/a.rs:1")).toBe(2);
+  });
+});
+
 describe("spawnScopeTaskIds (what the lanes tint)", () => {
   it("is empty for the single-task scope", () => {
     const { taskId } = sampledLocation();
@@ -163,9 +195,8 @@ describe("spawnScopeTaskIds (what the lanes tint)", () => {
 });
 
 describe("buildTaskFlamegraphView", () => {
-  it("reports the spawn-location scope unavailable without a location", () => {
+  it("folds nothing for the spawn-location scope without a location", () => {
     const view = buildTaskFlamegraphView(trace, 1, [], null, "spawn-location");
-    expect(view.available).toBe(false);
     expect(view.samples).toEqual([]);
     expect(view.taskCount).toBe(0);
   });
@@ -173,7 +204,6 @@ describe("buildTaskFlamegraphView", () => {
   it("scopes to the task alone, titled by its hex id", () => {
     const kept = sample();
     const view = buildTaskFlamegraphView(trace, 0x2a, [poll({ cpuSamples: [kept] })], null, "task");
-    expect(view.available).toBe(true);
     expect(view.samples).toEqual([kept]);
     expect(view.taskCount).toBe(1);
     expect(view.title).toContain("0x2a");
@@ -182,15 +212,14 @@ describe("buildTaskFlamegraphView", () => {
   it("scopes to every task at the location, titled by it", () => {
     const { location, taskId } = sampledLocation();
     const view = buildTaskFlamegraphView(trace, taskId, [], location, "spawn-location");
-    expect(view.available).toBe(true);
     expect(view.samples.length).toBe(spawnLocationCpuSamples(trace, location).length);
     expect(view.taskCount).toBe(tasksAtSpawnLocation(trace, location));
     expect(view.title).toContain(location);
   });
 
-  it("is unavailable with nothing selected", () => {
-    expect(buildTaskFlamegraphView(trace, null, [], null, "task").available).toBe(false);
-    expect(buildTaskFlamegraphView(null, 1, [], null, "task").available).toBe(false);
+  it("folds nothing with no trace and nothing selected", () => {
+    expect(buildTaskFlamegraphView(trace, null, [], null, "task").samples).toEqual([]);
+    expect(buildTaskFlamegraphView(null, 1, [], null, "task").samples).toEqual([]);
   });
 });
 

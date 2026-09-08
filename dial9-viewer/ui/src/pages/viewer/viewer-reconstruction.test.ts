@@ -526,6 +526,7 @@ describe("viewer deep-link reconstruction", () => {
       }),
       selectedTaskId: poll.taskId,
       hoveredWakerTaskId: poll.taskId,
+      taskScope: "spawn-location",
     });
     store.update("poi", {
       filter: "long-poll",
@@ -547,6 +548,7 @@ describe("viewer deep-link reconstruction", () => {
       inspectorTab: "related",
       expandedPollGroups: new Set(["cpu-0"]),
       pollFlamegraphSection: "sched",
+      taskFlamegraphOpen: true,
       pollWorkerZoom: ["old", "poll"],
       pollOffworkerZoom: ["old", "wait"],
       relatedCollapsed: { "Same task": true },

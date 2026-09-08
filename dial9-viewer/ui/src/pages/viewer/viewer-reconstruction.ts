@@ -235,6 +235,9 @@ export function createViewerReconstruction(
       taskDump: null,
       sidebarRange: null,
       hoveredWakerTaskId: null,
+      // "All from this spawn location" names a location in the trace being
+      // replaced, and the task it was anchored to is going away with it.
+      taskScope: "task",
       spawnedTasksRange: null,
     });
   }
@@ -249,6 +252,7 @@ export function createViewerReconstruction(
       inspectorTab: "task",
       expandedPollGroups: new Set<string>(),
       pollFlamegraphSection: "cpu",
+      taskFlamegraphOpen: false,
       pollWorkerZoom: [],
       pollOffworkerZoom: [],
       relatedCollapsed: {},

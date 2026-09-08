@@ -557,7 +557,7 @@ export function mountInspector(
           title="Show a CPU flamegraph for the current scope"
           @click=${() => store.update("view", { taskFlamegraphOpen: !open })}
         >
-          🔥 Flame
+          Flame
         </button>
       </div>
     `;
@@ -601,14 +601,28 @@ export function mountInspector(
     `;
   }
 
+  /**
+   * The Task tab's scope view, memoized on the inputs that determine it.
+   *
+   * Both the template and the post-render sync need the view, and the
+   * spawn-location scope is a full pass over `trace.cpuSamples` - millions of
+   * them on a large trace. Without this, every frame the inspector re-renders
+   * for (a selection change, a sidebar-resize drag) pays that pass twice.
+   */
+  let taskFgView: { sig: string; view: TaskFlamegraphView } | null = null;
   function taskFlamegraphViewFor(d: TaskDetailData): TaskFlamegraphView {
-    return buildTaskFlamegraphView(
-      state().trace.trace,
+    const trace = state().trace.trace;
+    const scope = activeTaskScope(d);
+    const sig = [
+      trace === null ? 0 : traceId(trace),
       d.taskId,
-      d.polls,
-      d.spawnLocation,
-      activeTaskScope(d),
-    );
+      scope,
+      d.spawnLocation ?? "",
+    ].join("|");
+    if (taskFgView !== null && taskFgView.sig === sig) return taskFgView.view;
+    const view = buildTaskFlamegraphView(trace, d.taskId, d.polls, d.spawnLocation, scope);
+    taskFgView = { sig, view };
+    return view;
   }
 
   function kv(k: string, v: string): TemplateResult {

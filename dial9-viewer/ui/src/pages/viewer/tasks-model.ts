@@ -16,6 +16,7 @@ import {
 } from "../../lib/trace/columnar-worker-spans.js";
 import { formatHumanDuration } from "../../lib/trace/index.js";
 import { railWindow } from "./poi.js";
+import { spawnLocationOf } from "./task-flamegraph-model.js";
 import type { ParsedTrace, PollSpan, WorkerLane } from "../../types/trace.js";
 import type { PoiSlice } from "../../types/state.js";
 
@@ -84,9 +85,7 @@ export function taskIndexFor(trace: ParsedTrace): TaskIndex {
   const rows: TaskIndexRow[] = [];
   for (const taskId of taskIds) {
     const agg = byTask.get(taskId);
-    const spawnLocId = trace.taskSpawnLocs.get(taskId);
-    const spawnLoc =
-      spawnLocId != null ? trace.spawnLocations.get(spawnLocId) ?? null : null;
+    const spawnLoc = spawnLocationOf(trace, taskId);
     const spawnTs = trace.taskSpawnTimes.get(taskId) ?? null;
     const terminateTs = trace.taskTerminateTimes.get(taskId) ?? null;
     const lifetimeNs =

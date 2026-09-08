@@ -28,6 +28,7 @@ import {
   docsRsUrl,
   formatHumanDuration,
 } from "../../lib/trace/index.js";
+import { spawnLocationOf } from "./task-flamegraph-model.js";
 import type {
   ParsedTrace,
   PollSpan,
@@ -186,10 +187,8 @@ export function wakerLabelFor(
   ) {
     return "io";
   }
-  const wakerLoc = trace.taskSpawnLocs.get(wakerTaskId);
-  const wakerLocStr =
-    wakerLoc != null ? trace.spawnLocations.get(wakerLoc) : null;
-  return wakerLocStr != null
+  const wakerLocStr = spawnLocationOf(trace, wakerTaskId);
+  return wakerLocStr !== null
     ? wakerLocStr.replace(/.*\//, "")
     : `task 0x${wakerTaskId.toString(16)}`;
 }
