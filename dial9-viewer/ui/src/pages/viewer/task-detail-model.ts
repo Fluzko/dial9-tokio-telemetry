@@ -308,6 +308,8 @@ export function formatTaskDetailSummary(data: TaskDetailData): string {
  * A location that does not end in `:line:col` (or `:line`) keeps whatever tail
  * it has - only a genuinely numeric column is stripped.
  */
+export function spawnLocLabel(location: string): string;
+export function spawnLocLabel(location: string | null): string | null;
 export function spawnLocLabel(location: string | null): string | null {
   if (location == null) return null;
   const file = location.replace(/.*\//, "");
@@ -338,9 +340,12 @@ export interface SpawnLocLink {
 }
 
 export function spawnLocLink(location: string | null): SpawnLocLink | null {
-  const label = spawnLocLabel(location);
-  if (label === null || location === null) return null;
-  return { label, full: location, href: docsRsUrl(location) };
+  if (location === null) return null;
+  return {
+    label: spawnLocLabel(location),
+    full: location,
+    href: docsRsUrl(location),
+  };
 }
 
 // ── Per-frame render model (viewport-dependent) ───────────────────────────

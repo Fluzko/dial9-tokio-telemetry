@@ -27,6 +27,7 @@ import { html, nothing, type TemplateResult } from "lit-html";
 import { createCanvasSizer } from "../../lib/canvas/index.js";
 import type { CanvasSizer } from "../../lib/canvas/index.js";
 import { formatHumanDuration } from "../../lib/trace/index.js";
+import { copyText } from "../../lib/url/index.js";
 import type { ViewerStore } from "../../store/store.js";
 import type { StoreState } from "../../types/state.js";
 import type { TrackSpec } from "../../lib/canvas/track-layout.js";
@@ -254,26 +255,52 @@ export function createTaskDetailTrack(store: ViewerStore): TaskDetailTrackContro
         >${spawn.label}</a
       >`;
     }
+    // The label rides its own <span> and the flash rides a SEPARATE, static
+    // one. The label is a lit binding: writing the flash into the button's own
+    // textContent would delete lit's ChildPart markers with it, and every later
+    // re-render would then update a detached text node - the gutter would keep
+    // showing this task's path after the user selected another one.
     return html`<button
       type="button"
       class="d9-task-detail-spawn is-copy"
       title=${`${spawn.full}\nCopy path`}
       @click=${(e: MouseEvent) => copySpawnLoc(e, spawn.full)}
     >
-      ${spawn.label}
+      <span class="d9-spawn-label">${spawn.label}</span
+      ><span class="d9-spawn-flash" aria-live="polite"></span>
     </button>`;
   }
 
-  /** Copy the full path, flashing the label. Imperative, like the inspector's
-   *  own copy buttons - no store round-trip for an 800ms affordance. */
+  let flashTimer: number | null = null;
+
+  /** Flash `text` over the label for 800ms. Writes only the binding-free flash
+   *  span, never the button's own children. */
+  function flashSpawn(btn: HTMLButtonElement, text: string): void {
+    const slot = btn.querySelector<HTMLElement>(".d9-spawn-flash");
+    if (slot === null) return;
+    if (flashTimer !== null) window.clearTimeout(flashTimer);
+    slot.textContent = text;
+    btn.classList.add("is-flashing");
+    flashTimer = window.setTimeout(() => {
+      flashTimer = null;
+      slot.textContent = "";
+      btn.classList.remove("is-flashing");
+    }, 800);
+  }
+
+  /** Copy the full path. Imperative, like the inspector's own copy buttons - no
+   *  store round-trip for an 800ms affordance - but the flash reports what
+   *  actually happened: the clipboard is unavailable outside secure contexts
+   *  and rejects on a denied permission or an unfocused document. */
   function copySpawnLoc(e: MouseEvent, value: string): void {
     const btn = e.currentTarget as HTMLButtonElement;
-    void navigator.clipboard?.writeText(value);
-    const previous = btn.textContent;
-    btn.textContent = "copied ✓";
-    window.setTimeout(() => {
-      btn.textContent = previous;
-    }, 800);
+    copyText(value).then(
+      () => flashSpawn(btn, "copied"),
+      (err: unknown) => {
+        console.warn("task-detail: spawn-location copy failed:", err);
+        flashSpawn(btn, "copy failed");
+      },
+    );
   }
 
   // ── Canvas interaction (status, waker hover/click) ─────────────────────
@@ -401,6 +428,10 @@ export function createTaskDetailTrack(store: ViewerStore): TaskDetailTrackContro
   }
 
   function dispose(): void {
+    if (flashTimer !== null) {
+      window.clearTimeout(flashTimer);
+      flashTimer = null;
+    }
     modelCache = null;
     lastModel = null;
     sizer = null;

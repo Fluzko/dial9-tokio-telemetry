@@ -2361,7 +2361,9 @@
     /**
      * Try to build a docs.rs source link from a location path containing a crate-version segment.
      * Matches any path like: .../hyper-0.14.28/src/client/connect/http.rs:474
-     * Returns URL string or null.
+     * Returns URL string or null. Exported as `docsRsUrl`: first-party code has
+     * no target, since the trace records the path on the recording machine
+     * rather than a repo or commit.
      */
     function _docsRsUrl(location) {
         if (!location) return null;
@@ -2379,17 +2381,6 @@
         let url = `https://docs.rs/${crate_}/${version}/src/${crateSrc}/${path}.html`;
         if (line) url += `#${line}`;
         return url;
-    }
-
-    /**
-     * The docs.rs source URL for a `file.rs:line[:col]` location, or null when
-     * the path does not identify a published crate (first-party code, whose
-     * repository and commit the trace does not record).
-     * @param {string|null} location
-     * @returns {string|null}
-     */
-    function docsRsUrl(location) {
-        return _docsRsUrl(location);
     }
 
     /**
@@ -2539,7 +2530,7 @@
             fetchTracesStream,
             canStreamDecode,
             formatFrame,
-            docsRsUrl,
+            docsRsUrl: _docsRsUrl,
             symbolizeChain,
             deduplicateSamples,
             deriveBlockInPlaceGaps,
@@ -2563,7 +2554,7 @@
             fetchTracesStream,
             canStreamDecode,
             formatFrame,
-            docsRsUrl,
+            docsRsUrl: _docsRsUrl,
             symbolizeChain,
             deduplicateSamples,
             deriveBlockInPlaceGaps,

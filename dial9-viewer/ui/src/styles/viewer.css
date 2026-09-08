@@ -1067,6 +1067,17 @@ body {
     outline-offset: 1px;
 }
 .d9-task-detail-spawn.is-link { color: #7fb3ff; }
+/* The copy button's label and its transient flash are separate spans: the
+   label is a lit binding, so the flash must never be written into the button's
+   own textContent (that would delete lit's part markers with it). */
+.d9-spawn-label,
+.d9-spawn-flash {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.d9-task-detail-spawn.is-flashing .d9-spawn-label { display: none; }
+.d9-spawn-flash { color: var(--d9-accent); }
 .d9-task-detail-wrap { position: relative; }
 .d9-task-detail-status {
     position: absolute;
