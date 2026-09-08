@@ -1043,6 +1043,41 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
 }
+.d9-task-detail-spawn {
+    font-size: 0.66em;
+    color: var(--d9-fg-muted);
+    font-family: var(--d9-mono, monospace);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    /* Both variants are interactive; neutralise the button's chrome so the
+       link and the copy button read as one control. */
+    background: none;
+    border: none;
+    padding: 0;
+    text-align: left;
+    cursor: pointer;
+    text-decoration: none;
+    display: block;
+    width: 100%;
+}
+.d9-task-detail-spawn:hover { color: var(--d9-fg); text-decoration: underline; }
+.d9-task-detail-spawn:focus-visible {
+    outline: 2px solid var(--d9-accent);
+    outline-offset: 1px;
+}
+.d9-task-detail-spawn.is-link { color: #7fb3ff; }
+/* The copy button's label and its transient flash are separate spans: the
+   label is a lit binding, so the flash must never be written into the button's
+   own textContent (that would delete lit's part markers with it). */
+.d9-spawn-label,
+.d9-spawn-flash {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.d9-task-detail-spawn.is-flashing .d9-spawn-label { display: none; }
+.d9-spawn-flash { color: var(--d9-accent); }
 .d9-task-detail-wrap { position: relative; }
 .d9-task-detail-status {
     position: absolute;
