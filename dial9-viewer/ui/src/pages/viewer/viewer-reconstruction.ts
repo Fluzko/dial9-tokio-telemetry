@@ -221,6 +221,7 @@ export function createViewerReconstruction(
       sidebarRange: null,
       hoveredWakerTaskId: null,
       spawnedTasksRange: null,
+      spawnedTasksRuntime: null,
       ...resolved,
     });
   }
@@ -239,6 +240,7 @@ export function createViewerReconstruction(
       // replaced, and the task it was anchored to is going away with it.
       scopedSpawnLoc: null,
       spawnedTasksRange: null,
+      spawnedTasksRuntime: null,
     });
   }
 

@@ -577,6 +577,7 @@ describe("viewer deep-link reconstruction", () => {
       // the REPLACED trace, which the new one need not contain.
       scopedSpawnLoc: null,
       spawnedTasksRange: null,
+      spawnedTasksRuntime: null,
     });
     expect(state.poi).toEqual({
       filter: "long-poll",
