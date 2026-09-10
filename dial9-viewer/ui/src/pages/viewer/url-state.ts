@@ -163,6 +163,9 @@ export const VIEWER_STATE_OWNERSHIP = {
     pollDetail: url(P_POLL),
     taskDump: url(P_TASK_DUMP),
     sidebarRange: url(P_REGION),
+    // Reconstructed from the anchored POI on load, not carried itself: it is
+    // that POI's own span, so a second encoding of it could disagree.
+    poiRange: derived,
     hoveredWakerTaskId: transient,
     spawnedTasksRange: url(P_SPAWNED),
   },

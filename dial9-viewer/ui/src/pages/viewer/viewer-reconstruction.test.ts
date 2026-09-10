@@ -577,6 +577,7 @@ describe("viewer deep-link reconstruction", () => {
       pollDetail: null,
       taskDump: null,
       sidebarRange: null,
+      poiRange: null,
       hoveredWakerTaskId: null,
       spawnedTasksRange: null,
     });

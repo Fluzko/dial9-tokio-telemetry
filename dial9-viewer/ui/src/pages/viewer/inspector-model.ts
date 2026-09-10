@@ -838,6 +838,7 @@ export function hasNoSelection(sel: SelectionSlice): boolean {
     sel.pinnedEvent === null &&
     sel.taskDump === null &&
     sel.spawnedTasksRange === null &&
-    sel.sidebarRange === null
+    sel.sidebarRange === null &&
+    sel.poiRange === null
   );
 }

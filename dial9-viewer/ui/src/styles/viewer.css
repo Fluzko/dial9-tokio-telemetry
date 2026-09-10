@@ -1874,6 +1874,60 @@ body {
     background: rgba(0, 188, 180, 0.15);
     border-color: rgba(0, 188, 180, 0.6);
 }
+/* The issues-rail jump marker. Amber, and only edge-tinted: it can cover the
+   whole visible window, and a filled box that wide would wash out the lanes it
+   exists to point at. */
+.d9-selection-overlay.poi {
+    background: rgba(255, 176, 32, 0.07);
+    border-color: rgba(255, 176, 32, 0.85);
+    border-left-width: 2px;
+    border-right-width: 2px;
+}
+
+/* The marker's own label, pinned inside its leading edge. `overflow: hidden`
+   on the box stops it spilling past a narrow marker; below CAPTION_MIN_WIDTH
+   the overlay drops it entirely rather than clip it to noise. */
+.d9-selection-overlay { overflow: hidden; }
+.d9-selection-caption {
+    position: absolute;
+    top: 0;
+    left: 0;
+    padding: 1px 5px;
+    font: 10px monospace;
+    white-space: nowrap;
+    color: #0a0e1c;
+    background: rgba(255, 176, 32, 0.85);
+    border-bottom-right-radius: 3px;
+}
+
+/* The jump marker's facts, above the inspector tabs: the box holds one
+   caption, and this is the POI kind that selects no task or poll, so without
+   it the inspector reads "No selection" right after a click. */
+.d9-poi-card {
+    margin: 0 8px 6px;
+    padding: 5px 7px;
+    border: 1px solid rgba(255, 176, 32, 0.5);
+    border-left: 2px solid rgba(255, 176, 32, 0.85);
+    border-radius: 3px;
+    background: rgba(255, 176, 32, 0.06);
+}
+.d9-poi-card-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--d9-fg);
+    margin-bottom: 3px;
+}
+.d9-poi-card-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    font: 10px monospace;
+    color: var(--d9-fg-muted);
+}
+.d9-poi-card-row > span:last-child {
+    color: var(--d9-fg);
+    font-variant-numeric: tabular-nums;
+}
 
 /* Floating viewport controls: zoom in / out / fit, bottom-right glass
    panel. Fixed so it stays in the corner while the track column scrolls; its
