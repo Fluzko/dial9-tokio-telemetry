@@ -418,8 +418,6 @@ export interface ViewerViewSlice {
   expandedPollGroups: ReadonlySet<string>;
   /** Which sample family the poll flamegraph displays when both are present. */
   pollFlamegraphSection: "cpu" | "sched";
-  /** Whether the Task tab's flamegraph is open (the "Flame" button). */
-  taskFlamegraphOpen: boolean;
   pollWorkerZoom: readonly string[];
   pollOffworkerZoom: readonly string[];
   relatedCollapsed: Readonly<Record<string, boolean>>;

@@ -252,7 +252,6 @@ export function createViewerReconstruction(
       inspectorTab: "task",
       expandedPollGroups: new Set<string>(),
       pollFlamegraphSection: "cpu",
-      taskFlamegraphOpen: false,
       pollWorkerZoom: [],
       pollOffworkerZoom: [],
       relatedCollapsed: {},

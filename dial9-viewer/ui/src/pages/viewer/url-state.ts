@@ -85,7 +85,6 @@ const P_LANES_SCROLL = "lanes-scroll";
 const P_STACK_VIEW = "stack-view";
 const P_INSPECTOR_TAB = "inspector";
 const P_POLL_SECTION = "poll-section";
-const P_TASK_FLAME = "task-flame";
 const P_TASK_SCOPE = "task-scope";
 const P_POLL_EXPANDED = "poll-expanded";
 const P_POLL_WORKER_ZOOM = "poll-worker-zoom";
@@ -204,7 +203,6 @@ export const VIEWER_STATE_OWNERSHIP = {
     inspectorTab: url(P_INSPECTOR_TAB),
     expandedPollGroups: url(P_POLL_EXPANDED),
     pollFlamegraphSection: url(P_POLL_SECTION),
-    taskFlamegraphOpen: url(P_TASK_FLAME),
     pollWorkerZoom: url(P_POLL_WORKER_ZOOM),
     pollOffworkerZoom: url(P_POLL_OFFWORKER_ZOOM),
     relatedCollapsed: url(P_RELATED_COLLAPSED),
@@ -383,7 +381,6 @@ export function projectViewerState(state: ReadonlyState<StoreState>): ViewState 
   const inferredInspectorTab: InspectorTab = preferredTab(sel) ?? "task";
   if (view.inspectorTab !== inferredInspectorTab) vs.inspectorTab = view.inspectorTab;
   if (view.pollFlamegraphSection !== "cpu") vs.pollSection = view.pollFlamegraphSection;
-  if (view.taskFlamegraphOpen) vs.taskFlame = true;
   if (sel.taskScope !== "task") vs.taskScope = sel.taskScope;
   if (view.expandedPollGroups.size > 0) {
     vs.expandedPollGroups = [...view.expandedPollGroups].sort();
@@ -478,7 +475,6 @@ export function mirrorViewerToQuery(
   set(params, P_STACK_VIEW, vs.stackView ?? null);
   set(params, P_INSPECTOR_TAB, vs.inspectorTab ?? null);
   set(params, P_POLL_SECTION, vs.pollSection ?? null);
-  set(params, P_TASK_FLAME, vs.taskFlame === true ? "1" : null);
   set(params, P_TASK_SCOPE, vs.taskScope ?? null);
   set(params, P_POLL_EXPANDED, encodeList(vs.expandedPollGroups));
   set(params, P_POLL_WORKER_ZOOM, encodePath(vs.pollWorkerZoom));
@@ -619,7 +615,6 @@ export interface ViewerUrlState {
   stacksAsFlamegraph?: boolean;
   inspectorTab?: InspectorTab;
   pollSection?: "cpu" | "sched";
-  taskFlame?: boolean;
   taskScope?: TaskScope;
   expandedPollGroups?: string[];
   pollWorkerZoom?: string[];
@@ -711,7 +706,6 @@ export function hydrateViewerStore(
     view.fieldCharts = urlView.fieldCharts;
   }
   if (urlView.inspectorTab !== undefined) view.inspectorTab = urlView.inspectorTab;
-  if (urlView.taskFlame !== undefined) view.taskFlamegraphOpen = urlView.taskFlame;
   if (urlView.pollSection !== undefined) {
     view.pollFlamegraphSection = urlView.pollSection;
   }
@@ -893,7 +887,6 @@ export function readViewerUrlState(search: string): ViewerUrlState {
   }
   const pollSection = p.get(P_POLL_SECTION);
   if (pollSection === "cpu" || pollSection === "sched") out.pollSection = pollSection;
-  if (p.get(P_TASK_FLAME) === "1") out.taskFlame = true;
   const taskScope = parseTaskScope(p.get(P_TASK_SCOPE) ?? "");
   if (taskScope !== null) out.taskScope = taskScope;
   const expandedPollGroups = decodeList(p.get(P_POLL_EXPANDED));

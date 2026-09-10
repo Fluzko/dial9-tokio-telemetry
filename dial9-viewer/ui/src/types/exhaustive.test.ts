@@ -216,7 +216,6 @@ const initialState: StoreState = {
     inspectorTab: "related",
     expandedPollGroups: new Set(["cpu-0"]),
     pollFlamegraphSection: "sched",
-    taskFlamegraphOpen: true,
     pollWorkerZoom: ["root", "poll"],
     pollOffworkerZoom: [],
     relatedCollapsed: { "Same task": true },

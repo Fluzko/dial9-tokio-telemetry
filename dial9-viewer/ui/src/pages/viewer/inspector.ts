@@ -76,6 +76,7 @@ import {
   type TaskFlamegraphView,
   type TaskScope,
 } from "./task-flamegraph-model.js";
+import { meanLifetimeNs, spawnFamilyStats } from "./task-scope-model.js";
 import { pollFlamegraphCacheSignature } from "./analysis-cache-signature.js";
 
 /** Clamp bounds for the resize drag ([200px, 92vw]). */
@@ -504,30 +505,68 @@ export function mountInspector(
               >`}
         </div>
         ${d.spawnLocation != null ? kv("spawn", d.spawnLocation) : nothing}
-        ${kv("polls", String(d.pollCount))}
-        ${d.isInstrumented ? kv("wakes", String(d.wakeCount)) : nothing}
-        ${d.lifetimeNs != null ? kv("lifetime", formatHumanDuration(d.lifetimeNs)) : nothing}
-        ${kv("status", d.hasTerminate ? "completed ✓" : "running")}
-        ${d.taskDumps.length > 0
-          ? kv("idle stacks", `${d.taskDumps.length} captured (flamegraph)`)
-          : nothing}
         ${taskScopeControls(d)}
-        ${state().view.taskFlamegraphOpen ? taskFlamegraphBody(d) : nothing}
+        ${activeTaskScope(d) === "spawn-location"
+          ? familyStats(d)
+          : singleTaskStats(d)}
+        ${taskFlamegraphBody(d)}
       </div>
     `;
   }
 
+  /** The selected task's own numbers. */
+  function singleTaskStats(d: TaskDetailData): TemplateResult {
+    return html`
+      ${kv("polls", String(d.pollCount))}
+      ${d.isInstrumented ? kv("wakes", String(d.wakeCount)) : nothing}
+      ${d.lifetimeNs != null ? kv("lifetime", formatHumanDuration(d.lifetimeNs)) : nothing}
+      ${kv("status", d.hasTerminate ? "completed ✓" : "running")}
+      ${d.taskDumps.length > 0
+        ? kv("idle stacks", `${d.taskDumps.length} captured (flamegraph)`)
+        : nothing}
+    `;
+  }
+
   /**
-   * The scope switch + the Flame toggle.
+   * The same block for the whole spawn location. Every row here describes the
+   * family, so the tab never mixes one task's numbers with the family's
+   * flamegraph below them.
+   */
+  function familyStats(d: TaskDetailData): TemplateResult {
+    const trace = state().trace.trace;
+    if (trace === null || d.spawnLocation === null) return singleTaskStats(d);
+    const f = spawnFamilyStats(trace, d.spawnLocation);
+    const mean = meanLifetimeNs(f);
+    const longestOwner =
+      f.longestPollTaskId !== null ? ` (0x${f.longestPollTaskId.toString(16)})` : "";
+    return html`
+      ${kv("tasks", String(f.taskCount))}
+      ${kv("polls", String(f.pollCount))}
+      ${kv("total poll time", formatHumanDuration(f.totalPollNs))}
+      ${f.longestPollTaskId !== null
+        ? kv("longest poll", `${formatHumanDuration(f.longestPollNs)}${longestOwner}`)
+        : nothing}
+      ${mean !== null
+        ? kv(
+            "mean lifetime",
+            `${formatHumanDuration(mean)} over ${f.lifetimeKnownCount} of ${f.taskCount}`,
+          )
+        : nothing}
+      ${f.runningCount > 0 ? kv("still running", String(f.runningCount)) : nothing}
+    `;
+  }
+
+  /**
+   * The scope switch.
    *
    * The scope is deliberately NOT flamegraph-local: choosing "All from spawn"
-   * also tints every sibling task's polls in the worker lanes, so the timeline
-   * and the profile answer the same question. It is offered only when the trace
-   * recorded a spawn location to group by.
+   * re-reads the stats above, folds every sibling's samples into the profile
+   * below, and tints those tasks in the worker lanes, so all three answer the
+   * same question. It is offered only when the trace recorded a spawn location
+   * to group by.
    */
   function taskScopeControls(d: TaskDetailData): TemplateResult {
     const scope = activeTaskScope(d);
-    const open = state().view.taskFlamegraphOpen;
     const groupable = d.spawnLocation != null;
     return html`
       <div class="d9-task-scope">
@@ -549,16 +588,6 @@ export function mountInspector(
             </button>`,
           )}
         </span>
-        <button
-          type="button"
-          class=${classMap({ "d9-task-flame-btn": true, on: open })}
-          aria-pressed=${open ? "true" : "false"}
-          aria-controls="d9-task-fg"
-          title="Show a CPU flamegraph for the current scope"
-          @click=${() => store.update("view", { taskFlamegraphOpen: !open })}
-        >
-          Flame
-        </button>
       </div>
     `;
   }
@@ -576,9 +605,12 @@ export function mountInspector(
   }
 
   /**
-   * The flamegraph slot. `[data-task-fg-host]` is binding-free so the
-   * post-render sync can own the canvas without lit-html reconciling it away
-   * (same technique as the poll and region hosts).
+   * The CPU profile for the active scope. Always rendered: it is the tab's only
+   * expandable surface, so a toggle bought a click and no choice.
+   *
+   * `[data-task-fg-host]` is binding-free so the post-render sync can own the
+   * canvas without lit-html reconciling it away (same technique as the poll and
+   * region hosts).
    */
   function taskFlamegraphBody(d: TaskDetailData): TemplateResult {
     const view = taskFlamegraphViewFor(d);
@@ -900,12 +932,12 @@ export function mountInspector(
 
   /**
    * Feed the Task tab's flamegraph after the frame render (the host node exists
-   * only then). A no-op unless the Task tab is showing an open flamegraph with
-   * samples; otherwise it detaches, so the widget parks with its removed host
-   * exactly like the poll and region hosts.
+   * only then). A no-op unless the Task tab is showing a scope with samples;
+   * otherwise it detaches, so the widget parks with its removed host exactly
+   * like the poll and region hosts.
    */
   function syncTaskFlamegraph(s: StoreState): void {
-    if (s.view.inspectorTab !== "task" || !s.view.taskFlamegraphOpen) {
+    if (s.view.inspectorTab !== "task") {
       taskFg.detach();
       return;
     }

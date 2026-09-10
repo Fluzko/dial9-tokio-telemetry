@@ -2215,18 +2215,6 @@ body {
 .d9-task-scope-btn.on { color: #fff; background: #9575cd; }
 .d9-task-scope-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .d9-task-scope-btn:focus-visible { outline: 2px solid var(--d9-accent); outline-offset: -2px; }
-.d9-task-flame-btn {
-    font-size: 0.72em;
-    color: var(--d9-fg-muted);
-    background: transparent;
-    border: 1px solid var(--d9-border);
-    border-radius: 4px;
-    padding: 2px 8px;
-    cursor: pointer;
-    white-space: nowrap;
-}
-.d9-task-flame-btn.on { color: #fff; background: var(--d9-accent); border-color: var(--d9-accent); }
-.d9-task-flame-btn:focus-visible { outline: 2px solid var(--d9-accent); outline-offset: -2px; }
 .d9-task-fg-note {
     font-size: 0.7em;
     color: var(--d9-fg-muted);
