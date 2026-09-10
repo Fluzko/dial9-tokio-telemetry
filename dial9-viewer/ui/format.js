@@ -1,19 +1,53 @@
 "use strict";
 
+// The sub-minute unit ladder, ascending. The unit is picked so the mantissa
+// lands in [1, 1000), which is what makes the unit itself carry the magnitude:
+// 100ns reads "100ns", never "0.1µs". Picoseconds are the floor - divided
+// durations (per-poll averages, rates) can land below a nanosecond.
+const HUMAN_DURATION_UNITS = [
+  { div: 1e-3, suffix: "ps" },
+  { div: 1, suffix: "ns" },
+  { div: 1e3, suffix: "µs" },
+  { div: 1e6, suffix: "ms" },
+  { div: 1e9, suffix: "s" },
+];
+
+// 3 significant digits, at most 2 decimals: 2 below 10, 1 below 100, none
+// above. `Number(...)` drops trailing zeros so a round value reads "1µs", not
+// "1.00µs".
+function humanSignificand(mantissa) {
+  const decimals = mantissa >= 100 ? 0 : mantissa >= 10 ? 1 : 2;
+  return String(Number(mantissa.toFixed(decimals)));
+}
+
 // Format a duration in nanoseconds as a human-friendly string with a sensible
-// unit. Chosen to read naturally at any scale: "500ns", "1.5µs", "123.46ms",
-// "30.00s", "5m 12.0s", "8h 0m 8s", "2d 4h 30m".
+// unit: "100ps", "500ns", "1.5µs", "123ms", "30s", "5m 12.0s", "8h 0m 8s",
+// "2d 4h 30m".
 //
-// Used in the viewer header and anywhere else we want a compact, readable
-// duration regardless of magnitude.
+// Sub-minute values carry 3 significant digits (at most 2 decimals) in the unit
+// that keeps the mantissa under 1000, so the reading is always scannable and
+// the unit tells you the scale at a glance. At a minute and above the composite
+// m/h/d form takes over, where the leading unit already reads that way.
+//
+// This is the viewer's ONE duration format: the time-lane ruler, tooltips,
+// inspector rows, flamegraph axes and the tokio-stats tables all route here.
 function formatHumanDuration(ns) {
   if (!isFinite(ns) || ns < 0) return "0ns";
-  if (ns < 1_000) return `${Math.round(ns)}ns`;
-  if (ns < 1_000_000) return `${(ns / 1_000).toFixed(1)}µs`;
-  if (ns < 1_000_000_000) return `${(ns / 1_000_000).toFixed(2)}ms`;
+  if (ns === 0) return "0ns";
 
   const totalSec = ns / 1e9;
-  if (totalSec < 60) return `${totalSec.toFixed(2)}s`;
+  if (totalSec < 60) {
+    let i = 0;
+    while (i < HUMAN_DURATION_UNITS.length - 1 && ns >= HUMAN_DURATION_UNITS[i + 1].div) i++;
+    let mantissa = humanSignificand(ns / HUMAN_DURATION_UNITS[i].div);
+    // Rounding can carry the mantissa up to 1000 (999.6ns): promote a unit
+    // rather than print a 4-digit reading.
+    if (Number(mantissa) >= 1000 && i < HUMAN_DURATION_UNITS.length - 1) {
+      i++;
+      mantissa = humanSignificand(ns / HUMAN_DURATION_UNITS[i].div);
+    }
+    return mantissa + HUMAN_DURATION_UNITS[i].suffix;
+  }
 
   const totalMin = Math.floor(totalSec / 60);
   const sec = totalSec - totalMin * 60;

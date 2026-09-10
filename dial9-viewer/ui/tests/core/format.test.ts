@@ -23,45 +23,65 @@ const { formatHumanDuration, formatHumanBytes, formatFieldValue } =
   };
 
 describe("formatHumanDuration", () => {
-  // Sub-microsecond -> ns
+  // Sub-nanosecond -> ps (a divided duration can land here)
   it("zero", () => {
     expect(formatHumanDuration(0)).toBe("0ns");
   });
+  it("0.1 ns -> ps", () => {
+    expect(formatHumanDuration(0.1)).toBe("100ps");
+  });
+  it("half a picosecond keeps 2 decimals at the ladder floor", () => {
+    expect(formatHumanDuration(0.0005)).toBe("0.5ps");
+  });
+
+  // Sub-microsecond -> ns
   it("500 ns", () => {
     expect(formatHumanDuration(500)).toBe("500ns");
   });
   it("999 ns", () => {
     expect(formatHumanDuration(999)).toBe("999ns");
   });
+  it("100 ns keeps its own unit rather than 0.1µs", () => {
+    expect(formatHumanDuration(100)).toBe("100ns");
+  });
 
   // Microseconds
   it("1 µs", () => {
-    expect(formatHumanDuration(1_000)).toBe("1.0µs");
+    expect(formatHumanDuration(1_000)).toBe("1µs");
   });
   it("1.5 µs", () => {
     expect(formatHumanDuration(1_500)).toBe("1.5µs");
   });
+  it("12.345 µs -> 3 significant digits", () => {
+    expect(formatHumanDuration(12_345)).toBe("12.3µs");
+  });
+  it("rounding up to 1000 promotes a unit", () => {
+    expect(formatHumanDuration(999.6)).toBe("1µs");
+  });
   it("just under 1 ms", () => {
-    expect(formatHumanDuration(999_999)).toBe("1000.0µs");
+    expect(formatHumanDuration(999_999)).toBe("1ms");
   });
 
   // Milliseconds
   it("1 ms", () => {
-    expect(formatHumanDuration(1_000_000)).toBe("1.00ms");
+    expect(formatHumanDuration(1_000_000)).toBe("1ms");
   });
   it("123 ms", () => {
-    expect(formatHumanDuration(123_456_789)).toBe("123.46ms");
+    expect(formatHumanDuration(123_456_789)).toBe("123ms");
   });
   it("999 ms", () => {
-    expect(formatHumanDuration(999_000_000)).toBe("999.00ms");
+    expect(formatHumanDuration(999_000_000)).toBe("999ms");
   });
 
   // Seconds
   it("1 s", () => {
-    expect(formatHumanDuration(1_000_000_000)).toBe("1.00s");
+    expect(formatHumanDuration(1_000_000_000)).toBe("1s");
+  });
+  it("1.5 s", () => {
+    expect(formatHumanDuration(1_500_000_000)).toBe("1.5s");
   });
   it("59 s", () => {
-    expect(formatHumanDuration(59_000_000_000)).toBe("59.00s");
+    expect(formatHumanDuration(59_000_000_000)).toBe("59s");
   });
 
   // Minutes (>= 60s)
@@ -128,13 +148,13 @@ describe("formatHumanBytes", () => {
 
 describe("formatFieldValue", () => {
   it("ns unit", () => {
-    expect(formatFieldValue(1_500_000, "ns")).toBe("1.50ms");
+    expect(formatFieldValue(1_500_000, "ns")).toBe("1.5ms");
   });
   it("us unit", () => {
-    expect(formatFieldValue(1_500, "us")).toBe("1.50ms");
+    expect(formatFieldValue(1_500, "us")).toBe("1.5ms");
   });
   it("ms unit", () => {
-    expect(formatFieldValue(1.5, "ms")).toBe("1.50ms");
+    expect(formatFieldValue(1.5, "ms")).toBe("1.5ms");
   });
   it("s unit", () => {
     expect(formatFieldValue(90, "s")).toBe("1m 30.0s");
@@ -153,10 +173,10 @@ describe("formatFieldValue", () => {
 
   // Decoded I64 fields arrive as BigInt and Varint fields as strings.
   it("BigInt value", () => {
-    expect(formatFieldValue(1_500_000n, "ns")).toBe("1.50ms");
+    expect(formatFieldValue(1_500_000n, "ns")).toBe("1.5ms");
   });
   it("string value", () => {
-    expect(formatFieldValue("1500000", "ns")).toBe("1.50ms");
+    expect(formatFieldValue("1500000", "ns")).toBe("1.5ms");
   });
   it("BigInt bytes", () => {
     expect(formatFieldValue(12_884_901_888n, "bytes")).toBe("12.00 GiB");
