@@ -45,6 +45,7 @@ export function initialViewerState(): StoreState {
       poiRange: null,
       hoveredWakerTaskId: null,
       spawnedTasksRange: null,
+      spawnedTasksRuntime: null,
     },
     // POI / issues-rail controls. Defaults: filter = "sched" and worst-first ON
     // (sort by the duration column, desc). No POI is current until the user

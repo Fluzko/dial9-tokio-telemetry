@@ -39,6 +39,22 @@
     }
 
     /**
+     * Decode one per-runtime scheduler-metrics sample. `alive_tasks` is absent
+     * from older on-wire RuntimeMetricsEvent schemas; preserve that absence so
+     * analysis can fall back instead of inventing a zero-valued task series.
+     */
+    function decodeRuntimeMetricsSample(timestamp, fields) {
+        return {
+            t: timestamp,
+            runtimeName:
+                fields.runtime_name != null ? String(fields.runtime_name) : "",
+            globalQueue: num(fields.global_queue_depth),
+            aliveTasks:
+                fields.alive_tasks != null ? num(fields.alive_tasks) : null,
+        };
+    }
+
+    /**
      * Intern a callchain frame address to its "0x…" hex string, deduped per
      * parse. Callchains across millions of samples/dumps/allocs share very few
      * distinct addresses (same code paths), so caching the hex string collapses
@@ -722,6 +738,10 @@
             ambiguousTids: new Set(),
             runtimeWorkers: new Map(), // runtime name → [workerId, ...]
             segmentMetadata: new Map(), // latest segment metadata key → value
+            // Sealed files seen, and how many reported losing or inheriting
+            // events.
+            sealedFiles: 0,
+            incompleteFiles: 0,
             // Per-runtime scheduler-metrics samples (one per runtime per flush
             // cycle): { t, runtimeName, globalQueue, aliveTasks }. Low-volume
             // (a handful per 10ms), so kept as a plain side-channel array rather
@@ -1366,17 +1386,7 @@
             case "RuntimeMetricsEvent":
                 // Per-runtime scheduler metrics. Low-volume, so recorded in a
                 // side-channel array rather than the columnar event store.
-                // `runtime_name` is empty for the unnamed default runtime.
-                // `global_queue_depth`/`alive_tasks` were added together, so old
-                // traces (which have neither) never reach this case — they emit
-                // QueueSampleEvent instead.
-                runtimeMetrics.push({
-                    t: ts,
-                    runtimeName:
-                        v.runtime_name != null ? String(v.runtime_name) : "",
-                    globalQueue: num(v.global_queue_depth),
-                    aliveTasks: num(v.alive_tasks),
-                });
+                runtimeMetrics.push(decodeRuntimeMetricsSample(ts, v));
                 break;
             case "TaskSpawnEvent": {
                 const taskId = num(v.task_id);
@@ -1507,6 +1517,14 @@
                     state.legacySegmentMetaWallNs = ts;
                 }
                 const entries = v.entries || {};
+                // Written once per file, as it is sealed. Files predating the
+                // key carry no seal record, so they go uncounted.
+                if ("segment.complete" in entries) {
+                    state.sealedFiles++;
+                    if (String(entries["segment.complete"]) === "false") {
+                        state.incompleteFiles++;
+                    }
+                }
                 for (const [key, val] of Object.entries(entries)) {
                     const value = String(val);
                     segmentMetadata.set(key, value);
@@ -1759,6 +1777,8 @@
             hasSchedWait: true,
             hasTaskTracking: true,
             ...deriveCapabilities(segmentMetadata, taskSpawnTimes),
+            sealedFiles: state.sealedFiles,
+            incompleteFiles: state.incompleteFiles,
             spawnLocations,
             taskSpawnLocs,
             taskSpawnTimes,
@@ -2538,6 +2558,7 @@
             // Exported for focused backwards-compatibility tests. Not part of
             // the browser API.
             decodeLegacyActiveTaskSample,
+            decodeRuntimeMetricsSample,
             // Exported for unit tests: the single-event span schema compiler
             // and its runtime timing resolution. Not part of the browser API.
             compileSingleEventSpanSchema,
