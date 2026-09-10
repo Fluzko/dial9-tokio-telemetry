@@ -1,5 +1,5 @@
-// Tests for the Task tab's scope model: which samples each scope folds, which
-// tasks the lanes tint, and the fallbacks when the trace never recorded a spawn
+// Tests for the Task tab's pin model: which samples a pin folds, which tasks
+// the lanes tint, and the fallbacks when the trace never recorded a spawn
 // location. Sample gathering runs against the demo trace (real `spawnLoc`
 // stamps from attachCpuSamples); the fallbacks run on hand-built stubs, since
 // they are about absent data.
@@ -12,10 +12,10 @@ import { parseTraceBuffer } from "../../lib/trace/index.js";
 import { sharedDetectorInputs } from "../../lib/trace/derived.js";
 import type { CpuSample, ParsedTrace, PollSpan } from "../../types/trace.js";
 import {
-  TASK_SCOPES,
   buildTaskFlamegraphView,
-  parseTaskScope,
-  scopeLabel,
+  isInPinnedFamily,
+  parseSpawnPin,
+  shortSpawnLocation,
   spawnLocationCpuSamples,
   spawnLocationOf,
   spawnScopeTaskIds,
@@ -67,16 +67,36 @@ function poll(over: Partial<PollSpan> = {}): PollSpan {
   return { start: 0, end: 100, taskId: 1, spawnLocId: "L", spawnLoc: null, ...over } as PollSpan;
 }
 
-describe("scope vocabulary", () => {
-  it("accepts only the two offered scopes", () => {
-    expect(parseTaskScope("task")).toBe("task");
-    expect(parseTaskScope("spawn-location")).toBe("spawn-location");
-    expect(parseTaskScope("everything")).toBeNull();
-    expect(parseTaskScope("")).toBeNull();
+describe("shortSpawnLocation", () => {
+  it("keeps the filename and position, dropping directories", () => {
+    expect(shortSpawnLocation("examples/metrics-service/src/main.rs:418:25")).toBe(
+      "main.rs:418:25",
+    );
   });
 
-  it("labels every scope", () => {
-    for (const s of TASK_SCOPES) expect(scopeLabel(s).length).toBeGreaterThan(0);
+  it("leaves a bare filename alone", () => {
+    expect(shortSpawnLocation("main.rs:1:1")).toBe("main.rs:1:1");
+  });
+
+  // The position suffix is the half that must survive: two call sites in one
+  // file differ only there.
+  it("keeps line and column apart for two sites in one file", () => {
+    const a = shortSpawnLocation("src/a/main.rs:10:5");
+    const b = shortSpawnLocation("src/b/main.rs:99:1");
+    expect(a).not.toBe(b);
+    expect(a).toBe("main.rs:10:5");
+  });
+});
+
+describe("parseSpawnPin", () => {
+  it("keeps any non-empty location", () => {
+    expect(parseSpawnPin("src/a.rs:1")).toBe("src/a.rs:1");
+  });
+
+  it("treats absent and blank as no pin", () => {
+    expect(parseSpawnPin(null)).toBeNull();
+    expect(parseSpawnPin("")).toBeNull();
+    expect(parseSpawnPin("   ")).toBeNull();
   });
 });
 
@@ -174,52 +194,83 @@ describe("spawn-location grouping reads the trace maps directly", () => {
 });
 
 describe("spawnScopeTaskIds (what the lanes tint)", () => {
-  it("is empty for the single-task scope", () => {
-    const { taskId } = sampledLocation();
-    expect(spawnScopeTaskIds(trace, taskId, "task").size).toBe(0);
+  it("is empty with no pin", () => {
+    expect(spawnScopeTaskIds(trace, null).size).toBe(0);
   });
 
-  it("is the whole sibling set for the spawn-location scope", () => {
+  it("is the whole family at the pinned location", () => {
     const { location, taskId } = sampledLocation();
-    const ids = spawnScopeTaskIds(trace, taskId, "spawn-location");
+    const ids = spawnScopeTaskIds(trace, location);
     expect(ids).toEqual(taskIdsAtSpawnLocation(trace, location));
     expect(ids.has(taskId)).toBe(true);
   });
 
-  it("is empty with no trace, no selection, or no recorded location", () => {
-    expect(spawnScopeTaskIds(null, 1, "spawn-location").size).toBe(0);
-    expect(spawnScopeTaskIds(trace, null, "spawn-location").size).toBe(0);
-    const unknownTask = Math.max(0, ...trace.taskSpawnLocs.keys()) + 1;
-    expect(spawnScopeTaskIds(trace, unknownTask, "spawn-location").size).toBe(0);
+  it("does not depend on the selection", () => {
+    const { location } = sampledLocation();
+    // The whole point of pinning: the tint is a function of the pin alone, so
+    // there is no selection argument that could re-target it.
+    expect(spawnScopeTaskIds(trace, location)).toEqual(
+      taskIdsAtSpawnLocation(trace, location),
+    );
+  });
+
+  it("is empty with no trace, or a location the trace never recorded", () => {
+    expect(spawnScopeTaskIds(null, "src/a.rs:1").size).toBe(0);
+    expect(spawnScopeTaskIds(trace, "nowhere.rs:1:1").size).toBe(0);
+  });
+});
+
+describe("isInPinnedFamily", () => {
+  it("is true for a task at the pinned location", () => {
+    const { location, taskId } = sampledLocation();
+    expect(isInPinnedFamily(trace, taskId, location)).toBe(true);
+  });
+
+  it("is false for a task from elsewhere, and with no pin", () => {
+    const { taskId } = sampledLocation();
+    expect(isInPinnedFamily(trace, taskId, "nowhere.rs:1:1")).toBe(false);
+    expect(isInPinnedFamily(trace, taskId, null)).toBe(false);
+    expect(isInPinnedFamily(trace, null, "src/a.rs:1")).toBe(false);
   });
 });
 
 describe("buildTaskFlamegraphView", () => {
-  it("folds nothing for the spawn-location scope without a location", () => {
-    const view = buildTaskFlamegraphView(trace, 1, [], null, "spawn-location");
-    expect(view.samples).toEqual([]);
-    expect(view.taskCount).toBe(0);
-  });
-
-  it("scopes to the task alone, titled by its hex id", () => {
+  it("folds the task alone with no pin, titled by its hex id", () => {
     const kept = sample();
-    const view = buildTaskFlamegraphView(trace, 0x2a, [poll({ cpuSamples: [kept] })], null, "task");
+    const view = buildTaskFlamegraphView(trace, 0x2a, [poll({ cpuSamples: [kept] })], null);
+    expect(view.isFamily).toBe(false);
     expect(view.samples).toEqual([kept]);
     expect(view.taskCount).toBe(1);
     expect(view.title).toContain("0x2a");
   });
 
-  it("scopes to every task at the location, titled by it", () => {
+  it("folds every task at the pinned location, titled by it", () => {
     const { location, taskId } = sampledLocation();
-    const view = buildTaskFlamegraphView(trace, taskId, [], location, "spawn-location");
+    const view = buildTaskFlamegraphView(trace, taskId, [], location);
+    expect(view.isFamily).toBe(true);
     expect(view.samples.length).toBe(spawnLocationCpuSamples(trace, location).length);
     expect(view.taskCount).toBe(tasksAtSpawnLocation(trace, location));
     expect(view.title).toContain(location);
   });
 
+  it("describes the selected task when the pin names another location", () => {
+    // The tab is titled with the selected task, so it must not show a family
+    // that task is not part of. The lanes and the rail still answer for the pin.
+    const kept = sample();
+    const view = buildTaskFlamegraphView(
+      trace,
+      0x2a,
+      [poll({ cpuSamples: [kept] })],
+      "nowhere.rs:1:1",
+    );
+    expect(view.isFamily).toBe(false);
+    expect(view.samples).toEqual([kept]);
+    expect(view.title).toContain("0x2a");
+  });
+
   it("folds nothing with no trace and nothing selected", () => {
-    expect(buildTaskFlamegraphView(trace, null, [], null, "task").samples).toEqual([]);
-    expect(buildTaskFlamegraphView(null, 1, [], null, "task").samples).toEqual([]);
+    expect(buildTaskFlamegraphView(trace, null, [], null).samples).toEqual([]);
+    expect(buildTaskFlamegraphView(null, 1, [], null).samples).toEqual([]);
   });
 });
 
@@ -227,8 +278,8 @@ describe("taskFlamegraphCacheSignature", () => {
   const base = {
     traceId: 1,
     taskId: 7,
-    scope: "task" as const,
-    spawnLocation: "src/a.rs:1",
+    isFamily: false,
+    pin: null as string | null,
     sampleCount: 3,
   };
 
@@ -236,25 +287,27 @@ describe("taskFlamegraphCacheSignature", () => {
     expect(taskFlamegraphCacheSignature(base)).toBe(taskFlamegraphCacheSignature(base));
   });
 
-  it("changes with the scope, the trace, and the sample count", () => {
+  it("changes with the subject, the trace, and the sample count", () => {
     const sig = taskFlamegraphCacheSignature(base);
-    expect(taskFlamegraphCacheSignature({ ...base, scope: "spawn-location" })).not.toBe(sig);
+    expect(
+      taskFlamegraphCacheSignature({ ...base, isFamily: true, pin: "src/a.rs:1" }),
+    ).not.toBe(sig);
     expect(taskFlamegraphCacheSignature({ ...base, traceId: 2 })).not.toBe(sig);
     expect(taskFlamegraphCacheSignature({ ...base, sampleCount: 4 })).not.toBe(sig);
   });
 
-  it("keys on the task under the task scope and on the location under the other", () => {
+  it("keys on the task for a single view and on the location for a family", () => {
     expect(taskFlamegraphCacheSignature({ ...base, taskId: 8 })).not.toBe(
       taskFlamegraphCacheSignature(base),
     );
-    const loc = { ...base, scope: "spawn-location" as const };
+    const fam = { ...base, isFamily: true, pin: "src/a.rs:1" as string | null };
     // Two tasks from the SAME location fold the same tree, so the signature
     // must not change with the task - re-selecting a sibling would rebuild it.
-    expect(taskFlamegraphCacheSignature({ ...loc, taskId: 8 })).toBe(
-      taskFlamegraphCacheSignature(loc),
+    expect(taskFlamegraphCacheSignature({ ...fam, taskId: 8 })).toBe(
+      taskFlamegraphCacheSignature(fam),
     );
-    expect(taskFlamegraphCacheSignature({ ...loc, spawnLocation: "src/b.rs:2" })).not.toBe(
-      taskFlamegraphCacheSignature(loc),
+    expect(taskFlamegraphCacheSignature({ ...fam, pin: "src/b.rs:2" })).not.toBe(
+      taskFlamegraphCacheSignature(fam),
     );
   });
 });

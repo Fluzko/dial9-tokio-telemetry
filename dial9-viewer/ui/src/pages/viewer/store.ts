@@ -43,7 +43,7 @@ export function initialViewerState(): StoreState {
       taskDump: null,
       sidebarRange: null,
       hoveredWakerTaskId: null,
-      taskScope: "task",
+      scopedSpawnLoc: null,
       spawnedTasksRange: null,
     },
     // POI / issues-rail controls. Defaults: filter = "sched" and worst-first ON

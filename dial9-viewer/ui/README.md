@@ -249,7 +249,7 @@ list escaping. Previously emitted comma/pre-encoded list values remain readable.
 | `stack-view` | `list` \| `flame` | Poll/blocking stack presentation. |
 | `inspector` | `task` \| `span` \| `poll` \| `event` \| `related` \| `stack` | Visible inspector tab. |
 | `poll-section` | `cpu` \| `sched` | Poll flamegraph sample family. |
-| `task-scope` | `task` \| `spawn-location` | What the Task tab is scoped to. `spawn-location` also tints every sibling task's polls in the worker lanes. Omitted at its `task` default. |
+| `task-scope` | spawn location | The pinned spawn location. Filters the rail's task list to tasks spawned there, tints their polls in the worker lanes, and folds their samples in the Task tab. Omitted when nothing is pinned. |
 | `poll-expanded` | `v1:` + TAB-joined group ids | Expanded poll list groups. |
 | `poll-worker-zoom` | TAB-joined frame path | Poll worker-tree flamegraph zoom. |
 | `poll-offworker-zoom` | same | Poll off-worker-tree flamegraph zoom. |

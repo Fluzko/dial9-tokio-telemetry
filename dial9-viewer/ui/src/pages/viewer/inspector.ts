@@ -69,12 +69,9 @@ import {
 } from "./inspector-model.js";
 import { createFlamegraphHost } from "./flamegraph-host.js";
 import {
-  TASK_SCOPES,
   buildTaskFlamegraphView,
-  scopeLabel,
   taskFlamegraphCacheSignature,
   type TaskFlamegraphView,
-  type TaskScope,
 } from "./task-flamegraph-model.js";
 import { meanLifetimeNs, spawnFamilyStats } from "./task-scope-model.js";
 import { pollFlamegraphCacheSignature } from "./analysis-cache-signature.js";
@@ -506,9 +503,8 @@ export function mountInspector(
         </div>
         ${d.spawnLocation != null ? kv("spawn", d.spawnLocation) : nothing}
         ${taskScopeControls(d)}
-        ${activeTaskScope(d) === "spawn-location"
-          ? familyStats(d)
-          : singleTaskStats(d)}
+        ${offFamilyNote(d)}
+        ${showsFamily(d) ? familyStats(d) : singleTaskStats(d)}
         ${taskFlamegraphBody(d)}
       </div>
     `;
@@ -534,8 +530,9 @@ export function mountInspector(
    */
   function familyStats(d: TaskDetailData): TemplateResult {
     const trace = state().trace.trace;
-    if (trace === null || d.spawnLocation === null) return singleTaskStats(d);
-    const f = spawnFamilyStats(trace, d.spawnLocation);
+    const pin = state().selection.scopedSpawnLoc;
+    if (trace === null || pin === null) return singleTaskStats(d);
+    const f = spawnFamilyStats(trace, pin);
     const mean = meanLifetimeNs(f);
     const longestOwner =
       f.longestPollTaskId !== null ? ` (0x${f.longestPollTaskId.toString(16)})` : "";
@@ -557,51 +554,87 @@ export function mountInspector(
   }
 
   /**
-   * The scope switch.
+   * The scope switch: pin this task's spawn location, or clear the pin.
    *
-   * The scope is deliberately NOT flamegraph-local: choosing "All from spawn"
-   * re-reads the stats above, folds every sibling's samples into the profile
-   * below, and tints those tasks in the worker lanes, so all three answer the
-   * same question. It is offered only when the trace recorded a spawn location
-   * to group by.
+   * "All from spawn" reads as active only when the pin IS this task's location.
+   * With a pin held on some other location the tab describes the selected task,
+   * so neither the family view nor a second family is implied here - the pin
+   * itself is surfaced by offFamilyNote instead.
    */
   function taskScopeControls(d: TaskDetailData): TemplateResult {
-    const scope = activeTaskScope(d);
+    const family = showsFamily(d);
     const groupable = d.spawnLocation != null;
+    const btn = (
+      on: boolean,
+      label: string,
+      title: string,
+      disabled: boolean,
+      onClick: () => void,
+    ): TemplateResult => html`<button
+      type="button"
+      class=${classMap({ "d9-task-scope-btn": true, on })}
+      aria-pressed=${on ? "true" : "false"}
+      ?disabled=${disabled}
+      title=${title}
+      @click=${onClick}
+    >
+      ${label}
+    </button>`;
     return html`
       <div class="d9-task-scope">
         <span class="d9-task-scope-switch" role="group" aria-label="Task scope">
-          ${TASK_SCOPES.map(
-            (s) => html`<button
-              type="button"
-              class=${classMap({ "d9-task-scope-btn": true, on: s === scope })}
-              aria-pressed=${s === scope ? "true" : "false"}
-              ?disabled=${s === "spawn-location" && !groupable}
-              title=${s === "task"
-                ? "Look at this task alone"
-                : groupable
-                  ? "Highlight every task spawned at this location, and fold their samples together"
-                  : "This task has no recorded spawn location to group by"}
-              @click=${() => setTaskScope(s)}
-            >
-              ${scopeLabel(s)}
-            </button>`,
+          ${btn(!family, "This task", "Look at this task alone", false, () =>
+            setPin(null),
+          )}
+          ${btn(
+            family,
+            "All from spawn",
+            groupable
+              ? "Pin this spawn location: filter the task list to it, tint its tasks, and fold their samples together"
+              : "This task has no recorded spawn location to group by",
+            !groupable,
+            () => setPin(d.spawnLocation),
           )}
         </span>
       </div>
     `;
   }
 
-  /** The scope actually in force: "spawn-location" needs a location to group
-   *  by, so a task without one falls back rather than showing an empty tree. */
-  function activeTaskScope(d: TaskDetailData): TaskScope {
-    const scope = state().selection.taskScope;
-    return scope === "spawn-location" && d.spawnLocation == null ? "task" : scope;
+  /**
+   * Shown when a pin is held on a location the selected task is not from. The
+   * rail and the lanes still answer for the pinned family, so the tab has to
+   * say why its own numbers do not.
+   */
+  function offFamilyNote(d: TaskDetailData): TemplateResult | typeof nothing {
+    const pin = state().selection.scopedSpawnLoc;
+    if (pin === null || showsFamily(d)) return nothing;
+    return html`
+      <div class="d9-task-offfamily">
+        <span
+          >Pinned to <bdi>${pin}</bdi>, which this task is not from. The lanes
+          and the task list still show that family.</span
+        >
+        <button
+          type="button"
+          class="d9-task-offfamily-clear"
+          title="Clear the pinned spawn location"
+          @click=${() => setPin(null)}
+        >
+          Unpin
+        </button>
+      </div>
+    `;
   }
 
-  function setTaskScope(scope: TaskScope): void {
-    if (state().selection.taskScope === scope) return;
-    store.update("selection", { taskScope: scope });
+  /** Whether the tab describes the pinned family rather than the one task. */
+  function showsFamily(d: TaskDetailData): boolean {
+    const pin = state().selection.scopedSpawnLoc;
+    return pin !== null && pin === d.spawnLocation;
+  }
+
+  function setPin(location: string | null): void {
+    if (state().selection.scopedSpawnLoc === location) return;
+    store.update("selection", { scopedSpawnLoc: location });
   }
 
   /**
@@ -617,13 +650,12 @@ export function mountInspector(
     if (view.samples.length === 0) {
       return html`<p class="d9-inspector-hint" id="d9-task-fg">
         No CPU samples were captured for
-        ${view.scope === "task" ? "this task" : "these tasks"}.
+        ${view.isFamily ? "these tasks" : "this task"}.
       </p>`;
     }
-    const scopeNote =
-      view.scope === "spawn-location"
-        ? `${view.taskCount} task${view.taskCount === 1 ? "" : "s"} from this spawn location`
-        : "this task only";
+    const scopeNote = view.isFamily
+      ? `${view.taskCount} task${view.taskCount === 1 ? "" : "s"} from this spawn location`
+      : "this task only";
     return html`
       <div class="d9-task-fg-note">
         ${view.samples.length} sample${view.samples.length === 1 ? "" : "s"} ·
@@ -644,15 +676,15 @@ export function mountInspector(
   let taskFgView: { sig: string; view: TaskFlamegraphView } | null = null;
   function taskFlamegraphViewFor(d: TaskDetailData): TaskFlamegraphView {
     const trace = state().trace.trace;
-    const scope = activeTaskScope(d);
+    const pin = state().selection.scopedSpawnLoc;
     const sig = [
       trace === null ? 0 : traceId(trace),
       d.taskId,
-      scope,
+      pin ?? "",
       d.spawnLocation ?? "",
     ].join("|");
     if (taskFgView !== null && taskFgView.sig === sig) return taskFgView.view;
-    const view = buildTaskFlamegraphView(trace, d.taskId, d.polls, d.spawnLocation, scope);
+    const view = buildTaskFlamegraphView(trace, d.taskId, d.polls, pin);
     taskFgView = { sig, view };
     return view;
   }
@@ -955,8 +987,8 @@ export function mountInspector(
     const sig = taskFlamegraphCacheSignature({
       traceId: traceId(s.trace.trace),
       taskId: d.taskId,
-      scope: view.scope,
-      spawnLocation: d.spawnLocation,
+      isFamily: view.isFamily,
+      pin: s.selection.scopedSpawnLoc,
       sampleCount: view.samples.length,
     });
     taskFg.sync({

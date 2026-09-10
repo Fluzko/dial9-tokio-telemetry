@@ -22,35 +22,34 @@ import { isFoldableCpuSample } from "./region-analysis-model.js";
 import type { CpuSample, ParsedTrace, PollSpan } from "../../lib/trace/index.js";
 
 /**
- * What the Task tab is looking at. Drives BOTH surfaces: the lanes tint every
- * sibling task's polls, and the flamegraph folds their samples.
+ * The pinned spawn location, or null for none. This is the WHOLE scope state:
+ * a location, not a mode. Deriving the family from "a mode plus whatever task
+ * is selected" made the subject swap silently when the selection moved, and
+ * made the rail's list depend on a member of that same list. A pinned string
+ * has neither problem - every surface answers "is this task in the family?"
+ * with a string compare, and nothing has to be kept in sync.
  */
-export type TaskScope = "task" | "spawn-location";
+export type SpawnPin = string | null;
 
-export const TASK_SCOPES: readonly TaskScope[] = [
-  "task",
-  "spawn-location",
-];
-
-/** Validate a scope arriving from the DOM or a URL before it reaches the store. */
-export function parseTaskScope(value: string): TaskScope | null {
-  return (TASK_SCOPES as readonly string[]).includes(value)
-    ? (value as TaskScope)
-    : null;
+/**
+ * Validate a pin arriving from a URL. Spawn locations are opaque strings from
+ * the trace, so anything non-empty is structurally valid; a pin naming a
+ * location the trace does not have simply resolves to an empty family.
+ */
+export function parseSpawnPin(value: string | null): SpawnPin {
+  if (value === null) return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
-/** The scope switch's button label. */
-export function scopeLabel(scope: TaskScope): string {
-  return scope === "task" ? "This task" : "All from spawn";
-}
-
-/** What the Task tab renders for one (task, scope) pair. */
+/** What the Task tab renders for one (task, pin) pair. */
 export interface TaskFlamegraphView {
-  scope: TaskScope;
+  /** True when the view folds the whole pinned family rather than one task. */
+  isFamily: boolean;
   /** Foldable on-CPU samples, in trace order. Empty means nothing to draw. */
   samples: readonly CpuSample[];
-  /** How many tasks contributed - 1 for the "task" scope, the whole spawn
-   *  location's task count for the other. */
+  /** How many tasks contributed - 1 for a single task, the pinned location's
+   *  whole task count for a family. */
   taskCount: number;
   /** Title for the flamegraph's export/header. */
   title: string;
@@ -113,6 +112,20 @@ export function spawnLocationOf(
   return trace.spawnLocations.get(locId) ?? null;
 }
 
+/**
+ * The label form of a spawn location: filename and position, directories
+ * dropped, so `examples/metrics-service/src/main.rs:418:25` reads as
+ * `main.rs:418:25`. The tail is the identifying part; callers keep the full
+ * path in a tooltip.
+ *
+ * Cropping from the left is why this is a string operation rather than CSS:
+ * `direction: rtl` moves the ellipsis but also reorders a trailing `:418:25`,
+ * because `:` is bidi-neutral.
+ */
+export function shortSpawnLocation(location: string): string {
+  return location.replace(/.*\//, "");
+}
+
 const EMPTY_TASK_IDS: ReadonlySet<number> = new Set();
 const scopeSetCache = new WeakMap<ParsedTrace, Map<string, ReadonlySet<number>>>();
 
@@ -144,57 +157,59 @@ export function taskIdsAtSpawnLocation(
 }
 
 /**
- * The sibling set the lanes tint: every task sharing the selected task's spawn
- * location. Empty for the "task" scope, for no selection, and for a task whose
- * spawn location the trace never recorded - all three mean "nothing to group
- * by", which must render as no tint rather than as an arbitrary group.
+ * The family the lanes tint: every task at the pinned location. Empty for no
+ * pin, which must render as no tint rather than as an arbitrary group.
+ *
+ * Takes only the pin, never the selection: the tint is a property of what is
+ * pinned, so moving the selection cannot silently re-target it.
  */
 export function spawnScopeTaskIds(
   trace: ParsedTrace | null,
-  taskId: number | null,
-  scope: TaskScope,
+  pin: SpawnPin,
 ): ReadonlySet<number> {
-  if (scope !== "spawn-location" || trace === null || taskId === null) {
-    return EMPTY_TASK_IDS;
-  }
-  const location = spawnLocationOf(trace, taskId);
-  if (location === null) return EMPTY_TASK_IDS;
-  return taskIdsAtSpawnLocation(trace, location);
+  if (pin === null || trace === null) return EMPTY_TASK_IDS;
+  return taskIdsAtSpawnLocation(trace, pin);
+}
+
+/** Whether `taskId` was spawned at the pinned location. */
+export function isInPinnedFamily(
+  trace: ParsedTrace | null,
+  taskId: number | null,
+  pin: SpawnPin,
+): boolean {
+  if (pin === null || trace === null || taskId === null) return false;
+  return spawnLocationOf(trace, taskId) === pin;
 }
 
 /**
- * Build the view for one (task, scope) pair. `polls` are the selected task's
- * polls (the Task tab's own derivation) and `spawnLocation` its resolved spawn
- * location, or null when the trace does not carry one.
+ * Build the view for one (task, pin) pair. `polls` are the selected task's own
+ * polls (the Task tab's derivation).
  *
- * A "spawn-location" scope without a location folds nothing: the caller
- * (inspector's activeTaskScope) falls back to the single-task scope before it
- * gets here, and an empty view is the honest answer if it ever does not.
+ * The family view is used only when the selected task is IN the pinned family.
+ * Selecting a task from elsewhere while a pin is held leaves the tab describing
+ * that task - the pin still governs the rail and the lane tint, but this panel
+ * is titled with the selected task and must not show another group's numbers.
  */
 export function buildTaskFlamegraphView(
   trace: ParsedTrace | null,
   taskId: number | null,
   polls: readonly PollSpan[],
-  spawnLocation: string | null,
-  scope: TaskScope,
+  pin: SpawnPin,
 ): TaskFlamegraphView {
   if (trace === null || taskId === null) {
-    return { scope, samples: EMPTY_SAMPLES, taskCount: 0, title: "" };
+    return { isFamily: false, samples: EMPTY_SAMPLES, taskCount: 0, title: "" };
   }
   const hexId = `0x${taskId.toString(16)}`;
-  if (scope === "spawn-location") {
-    if (spawnLocation === null) {
-      return { scope, samples: EMPTY_SAMPLES, taskCount: 0, title: `Task ${hexId}` };
-    }
+  if (isInPinnedFamily(trace, taskId, pin) && pin !== null) {
     return {
-      scope,
-      samples: spawnLocationCpuSamples(trace, spawnLocation),
-      taskCount: tasksAtSpawnLocation(trace, spawnLocation),
-      title: `CPU - all tasks from ${spawnLocation}`,
+      isFamily: true,
+      samples: spawnLocationCpuSamples(trace, pin),
+      taskCount: tasksAtSpawnLocation(trace, pin),
+      title: `CPU - all tasks from ${pin}`,
     };
   }
   return {
-    scope,
+    isFamily: false,
     samples: taskCpuSamples(polls),
     taskCount: 1,
     title: `CPU - task ${hexId}`,
@@ -209,11 +224,10 @@ export function buildTaskFlamegraphView(
 export function taskFlamegraphCacheSignature(args: {
   traceId: number;
   taskId: number | null;
-  scope: TaskScope;
-  spawnLocation: string | null;
+  isFamily: boolean;
+  pin: SpawnPin;
   sampleCount: number;
 }): string {
-  const scopeKey =
-    args.scope === "spawn-location" ? (args.spawnLocation ?? "-") : String(args.taskId);
-  return `${args.traceId}|${args.scope}|${scopeKey}|${args.sampleCount}`;
+  const subject = args.isFamily ? (args.pin ?? "-") : String(args.taskId);
+  return `${args.traceId}|${args.isFamily ? "family" : "task"}|${subject}|${args.sampleCount}`;
 }

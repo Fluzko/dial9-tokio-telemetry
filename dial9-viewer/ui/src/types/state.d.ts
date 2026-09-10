@@ -14,7 +14,7 @@ import type {
   TimeRange,
 } from "./trace.js";
 import type { TimePanelLayout } from "../../panel_layout.js";
-import type { TaskScope } from "../pages/viewer/task-flamegraph-model.js";
+import type { SpawnPin } from "../pages/viewer/task-flamegraph-model.js";
 
 // ── Panel vocabulary ────────────────────────────────────────────────────
 
@@ -165,16 +165,20 @@ export interface SelectionSlice {
   /** Waker task hovered in the task-detail panel (orange polls). */
   hoveredWakerTaskId: number | null;
   /**
-   * How much of the selection to consider: the selected task alone, or every
-   * task spawned at the same location. ONE scope drives both surfaces - the
-   * lanes tint the sibling tasks and the Task tab's flamegraph folds their
-   * samples - so the two can never disagree about what "all from this spawn
-   * location" means.
+   * The pinned spawn location, or null. ONE string drives every family surface
+   * - the rail's task list filters to it, the lanes tint its tasks, and the
+   * Task tab folds their samples - so none of them can disagree about what the
+   * family is.
+   *
+   * A location rather than a mode: with a mode, the family was whatever the
+   * selected task happened to belong to, so moving the selection re-targeted
+   * every surface silently. Pinned, the family holds until it is cleared, and
+   * selecting a task from elsewhere is a state the UI can name.
    *
    * It lives in `selection`, not `view`, because the LANES consume it: they
    * subscribe to selection and would never repaint for a view-slice change.
    */
-  taskScope: TaskScope;
+  scopedSpawnLoc: SpawnPin;
   /**
    * Time range drag-selected on the queue track. Dispatched on drag-release;
    * the inspector RENDERS the "tasks spawned in range" list from it

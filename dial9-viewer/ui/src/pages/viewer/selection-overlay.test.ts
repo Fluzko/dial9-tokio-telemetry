@@ -28,7 +28,7 @@ function selection(over: Partial<SelectionSlice> = {}): SelectionSlice {
     taskDump: null,
     sidebarRange: null,
     hoveredWakerTaskId: null,
-    taskScope: "task",
+    scopedSpawnLoc: null,
     spawnedTasksRange: null,
     ...over,
   };

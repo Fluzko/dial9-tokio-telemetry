@@ -357,7 +357,7 @@ describe("viewer deep-link reconstruction", () => {
     source.update("selection", {
       ...selection,
       selectedTaskId: poll.taskId,
-      taskScope: "spawn-location",
+      scopedSpawnLoc: "examples/metrics-service/src/main.rs:418:25",
     });
     source.update("poi", {
       filter: "long-poll",
@@ -525,7 +525,7 @@ describe("viewer deep-link reconstruction", () => {
       }),
       selectedTaskId: poll.taskId,
       hoveredWakerTaskId: poll.taskId,
-      taskScope: "spawn-location",
+      scopedSpawnLoc: "examples/metrics-service/src/main.rs:418:25",
     });
     store.update("poi", {
       filter: "long-poll",
@@ -573,10 +573,9 @@ describe("viewer deep-link reconstruction", () => {
       taskDump: null,
       sidebarRange: null,
       hoveredWakerTaskId: null,
-      // Resets with the selection it scopes: "all from this spawn location"
-      // names a location in the REPLACED trace, and the new source clears the
-      // task it was anchored to.
-      taskScope: "task",
+      // Resets with the source: a pinned spawn location names a call site in
+      // the REPLACED trace, which the new one need not contain.
+      scopedSpawnLoc: null,
       spawnedTasksRange: null,
     });
     expect(state.poi).toEqual({

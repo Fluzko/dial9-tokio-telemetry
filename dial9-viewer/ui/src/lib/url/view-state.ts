@@ -146,7 +146,7 @@ export interface ViewState {
   /** Inspector and poll-detail view controls. */
   inspectorTab?: string;
   pollSection?: string;
-  /** Task tab: what it is scoped to (`task` is the default and omitted). */
+  /** The pinned spawn location; omitted when nothing is pinned. */
   taskScope?: string;
   expandedPollGroups?: readonly string[];
   pollWorkerZoom?: readonly string[];

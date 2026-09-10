@@ -190,11 +190,7 @@ export function mountLanes(trackColumn: HTMLElement, store: ViewerStore): Mounte
       selectedTaskId: sel.selectedTaskId,
       selectedSpanIds,
       hoveredWakerTaskId: sel.hoveredWakerTaskId,
-      spawnScopeTaskIds: spawnScopeTaskIds(
-        state.trace.trace,
-        sel.selectedTaskId,
-        sel.taskScope,
-      ),
+      spawnScopeTaskIds: spawnScopeTaskIds(state.trace.trace, sel.scopedSpawnLoc),
       pinnedPoll: sel.pinnedEvent ? sel.pinnedEvent.poll : null,
       sharedMaxQ,
       dimmer,

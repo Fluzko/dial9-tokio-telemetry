@@ -36,7 +36,7 @@ import {
   type PoiAnchor,
 } from "./poi.js";
 import { INSPECTOR_TABS, preferredTab } from "./inspector-model.js";
-import { parseTaskScope, type TaskScope } from "./task-flamegraph-model.js";
+import { parseSpawnPin, type SpawnPin } from "./task-flamegraph-model.js";
 import {
   FIELD_CHART_KINDS,
   FIELD_CHART_URL_SEPARATOR,
@@ -163,7 +163,7 @@ export const VIEWER_STATE_OWNERSHIP = {
     taskDump: url(P_TASK_DUMP),
     sidebarRange: url(P_REGION),
     hoveredWakerTaskId: transient,
-    taskScope: url(P_TASK_SCOPE),
+    scopedSpawnLoc: url(P_TASK_SCOPE),
     spawnedTasksRange: url(P_SPAWNED),
   },
   poi: {
@@ -381,7 +381,7 @@ export function projectViewerState(state: ReadonlyState<StoreState>): ViewState 
   const inferredInspectorTab: InspectorTab = preferredTab(sel) ?? "task";
   if (view.inspectorTab !== inferredInspectorTab) vs.inspectorTab = view.inspectorTab;
   if (view.pollFlamegraphSection !== "cpu") vs.pollSection = view.pollFlamegraphSection;
-  if (sel.taskScope !== "task") vs.taskScope = sel.taskScope;
+  if (sel.scopedSpawnLoc !== null) vs.taskScope = sel.scopedSpawnLoc;
   if (view.expandedPollGroups.size > 0) {
     vs.expandedPollGroups = [...view.expandedPollGroups].sort();
   }
@@ -615,7 +615,7 @@ export interface ViewerUrlState {
   stacksAsFlamegraph?: boolean;
   inspectorTab?: InspectorTab;
   pollSection?: "cpu" | "sched";
-  taskScope?: TaskScope;
+  taskScope?: SpawnPin;
   expandedPollGroups?: string[];
   pollWorkerZoom?: string[];
   pollOffworkerZoom?: string[];
@@ -698,7 +698,7 @@ export function hydrateViewerStore(
   // The scope rides `selection` (the lanes consume it there), so it hydrates
   // alongside it rather than with the Task tab's other control.
   if (urlView.taskScope !== undefined) {
-    store.update("selection", { taskScope: urlView.taskScope });
+    store.update("selection", { scopedSpawnLoc: urlView.taskScope });
   }
 
   const view: Partial<StoreState["view"]> = {};
@@ -887,7 +887,12 @@ export function readViewerUrlState(search: string): ViewerUrlState {
   }
   const pollSection = p.get(P_POLL_SECTION);
   if (pollSection === "cpu" || pollSection === "sched") out.pollSection = pollSection;
-  const taskScope = parseTaskScope(p.get(P_TASK_SCOPE) ?? "");
+  // Carries the spawn location itself, so a link reproduces the family
+  // without depending on which task happens to be selected. The pre-pin
+  // encoding was the bare word "spawn-location", which named no family at all;
+  // it is dropped rather than guessed at.
+  const rawPin = p.get(P_TASK_SCOPE);
+  const taskScope = parseSpawnPin(rawPin === "spawn-location" ? null : rawPin);
   if (taskScope !== null) out.taskScope = taskScope;
   const expandedPollGroups = decodeList(p.get(P_POLL_EXPANDED));
   if (expandedPollGroups !== null) out.expandedPollGroups = expandedPollGroups;
