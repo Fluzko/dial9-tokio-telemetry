@@ -17,7 +17,7 @@ import type { IssueColKey, PoiSortKey, RailTab, TaskSortKey } from "../../types/
 import type { PointOfInterestType } from "../../types/trace.js";
 import type { KeyBinding } from "../../lib/interact/keyboard.js";
 import { deriveLaneData } from "../../components/canvas/lanes/index.js";
-import { shortSpawnLocation } from "./task-flamegraph-model.js";
+import { spawnLocLabel } from "./task-detail-model.js";
 import {
   POI_FILTERS,
   SPAWN_DELAY_THRESHOLD_MAX_US,
@@ -781,7 +781,7 @@ function tasksHead(vm: TaskViewModel, h: RailHandlers): TemplateResult {
 function pinChip(pin: string, h: RailHandlers): TemplateResult {
   return html`
     <span class="d9-rail-pin" title=${`Task list filtered to tasks spawned at ${pin}`}>
-      <bdi class="d9-rail-pin-loc">${shortSpawnLocation(pin)}</bdi>
+      <bdi class="d9-rail-pin-loc">${spawnLocLabel(pin)}</bdi>
       <button
         type="button"
         class="d9-rail-pin-clear"

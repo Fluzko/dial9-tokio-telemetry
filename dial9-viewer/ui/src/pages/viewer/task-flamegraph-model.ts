@@ -112,20 +112,6 @@ export function spawnLocationOf(
   return trace.spawnLocations.get(locId) ?? null;
 }
 
-/**
- * The label form of a spawn location: filename and position, directories
- * dropped, so `examples/metrics-service/src/main.rs:418:25` reads as
- * `main.rs:418:25`. The tail is the identifying part; callers keep the full
- * path in a tooltip.
- *
- * Cropping from the left is why this is a string operation rather than CSS:
- * `direction: rtl` moves the ellipsis but also reorders a trailing `:418:25`,
- * because `:` is bidi-neutral.
- */
-export function shortSpawnLocation(location: string): string {
-  return location.replace(/.*\//, "");
-}
-
 const EMPTY_TASK_IDS: ReadonlySet<number> = new Set();
 const scopeSetCache = new WeakMap<ParsedTrace, Map<string, ReadonlySet<number>>>();
 

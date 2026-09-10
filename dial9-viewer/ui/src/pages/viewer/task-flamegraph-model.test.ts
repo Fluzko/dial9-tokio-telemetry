@@ -15,7 +15,6 @@ import {
   buildTaskFlamegraphView,
   isInPinnedFamily,
   parseSpawnPin,
-  shortSpawnLocation,
   spawnLocationCpuSamples,
   spawnLocationOf,
   spawnScopeTaskIds,
@@ -66,27 +65,6 @@ function sample(over: Partial<CpuSample> = {}): CpuSample {
 function poll(over: Partial<PollSpan> = {}): PollSpan {
   return { start: 0, end: 100, taskId: 1, spawnLocId: "L", spawnLoc: null, ...over } as PollSpan;
 }
-
-describe("shortSpawnLocation", () => {
-  it("keeps the filename and position, dropping directories", () => {
-    expect(shortSpawnLocation("examples/metrics-service/src/main.rs:418:25")).toBe(
-      "main.rs:418:25",
-    );
-  });
-
-  it("leaves a bare filename alone", () => {
-    expect(shortSpawnLocation("main.rs:1:1")).toBe("main.rs:1:1");
-  });
-
-  // The position suffix is the half that must survive: two call sites in one
-  // file differ only there.
-  it("keeps line and column apart for two sites in one file", () => {
-    const a = shortSpawnLocation("src/a/main.rs:10:5");
-    const b = shortSpawnLocation("src/b/main.rs:99:1");
-    expect(a).not.toBe(b);
-    expect(a).toBe("main.rs:10:5");
-  });
-});
 
 describe("parseSpawnPin", () => {
   it("keeps any non-empty location", () => {
