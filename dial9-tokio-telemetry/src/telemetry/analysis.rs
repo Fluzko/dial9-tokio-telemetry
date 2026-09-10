@@ -63,7 +63,10 @@ impl TraceReader {
                     }
                 }
                 Dial9Event::SegmentMetadataEvent(e) => {
-                    segment_metadata = e.entries.clone();
+                    // A file carries one of these when it opens and another when it is sealed.
+                    segment_metadata.extend(
+                        e.entries.iter().map(|(k, v)| (k.clone(), v.clone())),
+                    );
                 }
                 Dial9Event::Other | Dial9Event::ProcessResourceUsageEvent(_) => {
                     // Unknown event: deserialize as CustomEvent to get fields.
@@ -107,6 +110,21 @@ impl TraceReader {
             thread_names,
             segment_metadata,
         })
+    }
+
+    /// Whether the trace is complete.
+    ///
+    /// An incomplete trace is missing events that were still buffered when it
+    /// was sealed, holds events belonging to the segment before it, or both.
+    ///
+    /// `None` for traces written before dial9 recorded this.
+    pub fn is_complete(&self) -> Option<bool> {
+        // Key name is the writer's SEGMENT_COMPLETE_KEY in `dial9_core::buffer`.
+        match self.segment_metadata.get("segment.complete")?.as_str() {
+            "true" => Some(true),
+            "false" => Some(false),
+            _ => None,
+        }
     }
 }
 
