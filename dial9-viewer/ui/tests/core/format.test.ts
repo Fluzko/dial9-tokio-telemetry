@@ -84,6 +84,15 @@ describe("formatHumanDuration", () => {
     expect(formatHumanDuration(59_000_000_000)).toBe("59s");
   });
 
+  it("59.94 s keeps the seconds reading", () => {
+    expect(formatHumanDuration(59_940_000_000)).toBe("59.9s");
+  });
+  it("a seconds reading that rounds to a minute becomes that minute", () => {
+    // Not "60s" (a reading the seconds branch must never produce), and not
+    // "0m 60.0s" (what formatting the raw value would give).
+    expect(formatHumanDuration(59_960_000_000)).toBe("1m 0.0s");
+  });
+
   // Minutes (>= 60s)
   it("60 s -> 1m 0.0s", () => {
     expect(formatHumanDuration(60_000_000_000)).toBe("1m 0.0s");

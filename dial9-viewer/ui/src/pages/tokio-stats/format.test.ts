@@ -40,6 +40,10 @@ describe("nsToDatetime / datetimeToNs", () => {
 describe("formatDuration (unit ladder s/ms/us/ns)", () => {
   it("seconds and milliseconds carry two decimals", () => {
     expect(formatDuration(1e9)).toBe("1s");
+    // At a minute and above the shared format switches to the composite form,
+    // so these table cells do too.
+    expect(formatDuration(120e9)).toBe("2m 0.0s");
+    expect(formatDuration(3600e9)).toBe("1h 0m 0s");
     expect(formatDuration(1.5e9)).toBe("1.5s");
     expect(formatDuration(1e6)).toBe("1ms");
     expect(formatDuration(1.234e6)).toBe("1.23ms");

@@ -33,7 +33,7 @@ export function datetimeToNs(val: string, utc: boolean): string | null {
  * Human duration for the threshold label and every P50/P99/Max cell: the
  * viewer's one duration format, aliased so the page's call sites read locally.
  */
-export { formatHumanDuration as formatDuration } from "../../lib/trace/index.js";
+export { formatHumanDuration as formatDuration } from "../../lib/trace/api_format.js";
 
 /**
  * The threshold slider's log-scale mapping: value v in [-1, 3] -> 10^v ms in ns

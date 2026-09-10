@@ -28,8 +28,6 @@ function shouldAdoptCatalogSnapshot(mode, baselineFilesFolded, incomingFilesFold
   }
   return false;
 }
-// ── Duration formatting (reuse from flamegraph_histogram.js when available) ──
-
 // ── Span type catalog helpers ────────────────────────────────────────────────
 
 // Sort span types by a given key. Default: descending by count.

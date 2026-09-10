@@ -121,8 +121,6 @@ declare module "*/span_explorer.js" {
 
   // ── Formatting ──
 
-  /** Duration to a compact unit-suffixed string; "—" for null/invalid. */
-
   /** Percentile rank (0..100) to "pNN"/"pNN.N"; keeps tail precision. */
   export function fmtPercentile(p: number | null | undefined): string;
 

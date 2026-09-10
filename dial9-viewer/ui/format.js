@@ -20,6 +20,26 @@ function humanSignificand(mantissa) {
   return String(Number(mantissa.toFixed(decimals)));
 }
 
+// The sub-minute reading, or null when it belongs to the composite branch:
+// either the value is already a minute or more, or rounding carried the
+// seconds reading onto the boundary (59.96s must not print "60s" right next to
+// a real minute printing "1m 0.0s").
+function subMinuteDuration(ns) {
+  if (ns >= 60e9) return null;
+  let i = 0;
+  while (i < HUMAN_DURATION_UNITS.length - 1 && ns >= HUMAN_DURATION_UNITS[i + 1].div) i++;
+  let mantissa = humanSignificand(ns / HUMAN_DURATION_UNITS[i].div);
+  // Rounding can carry the mantissa up to 1000 (999.6ns): promote a unit
+  // rather than print a 4-digit reading.
+  if (Number(mantissa) >= 1000 && i < HUMAN_DURATION_UNITS.length - 1) {
+    i++;
+    mantissa = humanSignificand(ns / HUMAN_DURATION_UNITS[i].div);
+  }
+  const unit = HUMAN_DURATION_UNITS[i];
+  if (unit.suffix === "s" && Number(mantissa) >= 60) return null;
+  return mantissa + unit.suffix;
+}
+
 // Format a duration in nanoseconds as a human-friendly string with a sensible
 // unit: "100ps", "500ns", "1.5µs", "123ms", "30s", "5m 12.0s", "8h 0m 8s",
 // "2d 4h 30m".
@@ -32,23 +52,14 @@ function humanSignificand(mantissa) {
 // This is the viewer's ONE duration format: the time-lane ruler, tooltips,
 // inspector rows, flamegraph axes and the tokio-stats tables all route here.
 function formatHumanDuration(ns) {
-  if (!isFinite(ns) || ns < 0) return "0ns";
-  if (ns === 0) return "0ns";
+  if (!(ns > 0) || !isFinite(ns)) return "0ns";
 
-  const totalSec = ns / 1e9;
-  if (totalSec < 60) {
-    let i = 0;
-    while (i < HUMAN_DURATION_UNITS.length - 1 && ns >= HUMAN_DURATION_UNITS[i + 1].div) i++;
-    let mantissa = humanSignificand(ns / HUMAN_DURATION_UNITS[i].div);
-    // Rounding can carry the mantissa up to 1000 (999.6ns): promote a unit
-    // rather than print a 4-digit reading.
-    if (Number(mantissa) >= 1000 && i < HUMAN_DURATION_UNITS.length - 1) {
-      i++;
-      mantissa = humanSignificand(ns / HUMAN_DURATION_UNITS[i].div);
-    }
-    return mantissa + HUMAN_DURATION_UNITS[i].suffix;
-  }
+  const reading = subMinuteDuration(ns);
+  if (reading !== null) return reading;
 
+  // A value whose seconds reading rounded up to a minute is formatted as the
+  // minute it rounded to; using the raw 59.96s here would read "0m 60.0s".
+  const totalSec = Math.max(ns, 60e9) / 1e9;
   const totalMin = Math.floor(totalSec / 60);
   const sec = totalSec - totalMin * 60;
   if (totalMin < 60) return `${totalMin}m ${sec.toFixed(1)}s`;

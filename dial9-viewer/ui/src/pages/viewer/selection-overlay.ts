@@ -24,6 +24,7 @@
 
 import { assertInScheduledRender } from "../../store/store.js";
 import { formatHumanDuration } from "../../lib/trace/index.js";
+import { estimateLabelWidth } from "./axis.js";
 import { timePanelLayout } from "../../lib/canvas/layout.js";
 import type { TimePanelLayout } from "../../lib/canvas/layout.js";
 import { lanesScrollbarWidth } from "../../lib/canvas/track-layout.js";
@@ -111,10 +112,9 @@ export function selectionBox(region: SelectionRegion, layout: TimePanelLayout): 
   return { left: Math.min(x1, x2), width: Math.max(1, Math.abs(x2 - x1)) };
 }
 
-// Measuring-bar metrics: the label's own box (10px monospace at ~6px/glyph
-// plus padding and borders) and the gap it keeps from the box edge when it has
-// to sit outside.
-const MEASURE_CHAR_W = 6;
+// Measuring-bar metrics: the label's padding and borders on top of the ruler's
+// own text-width estimate (axis.ts owns that, since the bar shares the ruler's
+// row and font), plus the gap it keeps from the box edge when it sits outside.
 const MEASURE_PAD_W = 10;
 const MEASURE_GAP = 4;
 
@@ -131,7 +131,7 @@ export function measureText(region: SelectionRegion): string | null {
 
 /** Estimated width (CSS px) of the measuring bar for `text`. */
 export function measureWidth(text: string): number {
-  return text.length * MEASURE_CHAR_W + MEASURE_PAD_W;
+  return estimateLabelWidth(text) + MEASURE_PAD_W;
 }
 
 /** Where the measuring bar sits relative to the selection box. */
@@ -234,6 +234,9 @@ export function mountSelectionOverlay(
     // then the shared layout - identical inputs to the lanes/overlay.
     const pw = trackColumn.clientWidth;
     const scrollbarW = lanesScrollbarWidth(trackColumn);
+    // Read with the other geometry, BEFORE any style write: a rect read after
+    // a write forces a synchronous layout, and this runs every drag frame.
+    const laneTop = timeLaneTop(trackColumn);
     const { viewStart, viewEnd } = state.viewport;
     if (viewEnd <= viewStart) {
       el.style.display = "none";
@@ -254,7 +257,7 @@ export function mountSelectionOverlay(
     el.style.height = `${trackColumn.scrollHeight}px`;
     el.style.display = "block";
 
-    el.style.setProperty(LANE_TOP_PROP, `${timeLaneTop(trackColumn)}px`);
+    el.style.setProperty(LANE_TOP_PROP, `${laneTop}px`);
     const rail = ensureChild(el, RAIL_CLASS);
     const measure = ensureChild(el, MEASURE_CLASS);
     const text = measureText(region);

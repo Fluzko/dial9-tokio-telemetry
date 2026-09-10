@@ -280,6 +280,13 @@ describe("label formatting (fmtTs parity + amendment)", () => {
     expect(Math.abs(micros - 1500)).toBeLessThan(2);
   });
 
+  it("fmtWallClockLabel: a pre-epoch wall clock still yields digits", () => {
+    // A negative remainder used to pad its minus sign into the fraction
+    // (".0-1"); the euclidean remainder keeps the field numeric.
+    const label = fmtWallClockLabel(-1_500_000, false, false, 6);
+    expect(label).toMatch(/^\d{2}:\d{2}:\d{2}\.\d{6}$/);
+  });
+
   it("wallClockFracDigits caps at µs (float64 epoch-ns is already quantised)", () => {
     expect(wallClockFracDigits(undefined)).toBe(0);
     expect(wallClockFracDigits(1e9)).toBe(0);
@@ -387,6 +394,26 @@ describe("rulerLayout (window-relative ruler)", () => {
     const sliver = rulerLayout(viewStart, viewEnd, 120, relInputs());
     expect(sliver.chip).toBeNull();
     expect(sliver.anchor).toBeNull();
+  });
+
+  it("drops an edge label that the canvas would clip", () => {
+    // 250px: no chip (its 320px floor), so only the canvas edge protects the
+    // last tick, which lands exactly on x = drawW. The anchor covers x = 0.
+    const layout = rulerLayout(viewStart, viewEnd, 250, relInputs());
+    expect(layout.chip).toBeNull();
+    expect(layout.ticks[0]!.offsetNs).toBe(0);
+    expect(layout.ticks[0]!.text).toBeNull();
+    const last = layout.ticks[layout.ticks.length - 1]!;
+    expect(last.x).toBe(250);
+    expect(last.text).toBeNull();
+  });
+
+  it("keeps the zero label when there is no anchor to yield to", () => {
+    // Below the anchor floor the ruler is bare ticks, so nothing reserves the
+    // left edge - but a label centred at x = 0 would still be half clipped.
+    const layout = rulerLayout(viewStart, viewEnd, 120, relInputs());
+    expect(layout.anchor).toBeNull();
+    expect(layout.ticks[0]!.text).toBeNull();
   });
 
   it("drops a colliding label but keeps its tick mark", () => {

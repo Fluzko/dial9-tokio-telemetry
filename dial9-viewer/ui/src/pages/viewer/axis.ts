@@ -321,7 +321,9 @@ export function fmtWallClockLabel(
   const ss = localTz ? d.getSeconds() : d.getUTCSeconds();
   let time = pad2(hh) + ":" + pad2(mm) + ":" + pad2(ss);
   if (fracDigits > 0) {
-    const subSecNs = Math.floor(wallNs % 1e9);
+    // Euclidean remainder: a pre-epoch (negative) wall clock would otherwise
+    // pad its minus sign into the fraction ("0-1500000" -> ".0-1").
+    const subSecNs = ((Math.floor(wallNs) % 1e9) + 1e9) % 1e9;
     time += "." + String(subSecNs).padStart(9, "0").slice(0, fracDigits);
   }
   return withDate ? pad2(mo) + "-" + pad2(day) + " " + time : time;
@@ -380,9 +382,18 @@ export function fmtTickOffset(offsetNs: number): string {
 const LABEL_CHAR_W = 6;
 const LABEL_GAP = 8;
 
+/**
+ * Estimated pixel width of ruler text. The one place this estimate lives: the
+ * selection measuring bar sits in this same row and sizes itself through it,
+ * so a font change moves both together.
+ */
+export function estimateLabelWidth(text: string): number {
+  return text.length * LABEL_CHAR_W;
+}
+
 /** Half the estimated pixel width of a label. */
 export function labelHalfWidth(text: string): number {
-  return (text.length * LABEL_CHAR_W) / 2;
+  return estimateLabelWidth(text) / 2;
 }
 
 /**
@@ -445,11 +456,13 @@ export function rulerLayout(
         ? `<-> ${formatHumanDuration(viewDur)}`
         : null;
 
-  // Reserved bands: a tick label may not paint over either chip.
+  // Reserved bands: a tick label may not paint over either chip, and never
+  // past a canvas edge - a centred label at x=0 or x=drawW would be half
+  // clipped, which is what happens on a panel too narrow to carry a chip.
   let lastRight =
-    anchor === null ? -Infinity : anchor.length * LABEL_CHAR_W + LABEL_GAP;
+    anchor === null ? 0 : estimateLabelWidth(anchor) + LABEL_GAP;
   const rightLimit =
-    chip === null ? Infinity : drawW - chip.length * LABEL_CHAR_W - LABEL_GAP;
+    chip === null ? drawW : drawW - estimateLabelWidth(chip) - LABEL_GAP;
 
   const ticks: RulerTick[] = [];
   for (const offsetNs of tickOffsets(viewDur, interval)) {
