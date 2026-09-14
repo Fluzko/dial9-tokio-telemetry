@@ -10,6 +10,7 @@ import {
   measureWidth,
   selectionBox,
   selectionSpan,
+  highlightLaneRow,
 } from "./selection-overlay.js";
 import { timePanelLayout, LABEL_W } from "../../lib/canvas/layout.js";
 import type { SelectionSlice, TransientSlice } from "../../types/state.js";
@@ -172,37 +173,90 @@ describe("activeSelectionRegion - precedence", () => {
 describe("selectionSpan - vertical extent", () => {
   // The worker-lanes viewport sits below the ruler and above the analysis
   // tracks; the column scrolls past both.
-  const extent = { lanes: { top: 65, bottom: 516 }, columnHeight: 846 };
+  const spanning = {
+    lanes: { top: 65, bottom: 516 },
+    columnHeight: 846,
+    laneRow: null,
+    lanesScrollTop: 0,
+  };
+  // W1 of four 60px rows under a 24px runtime header.
+  const onRow = { ...spanning, laneRow: { y: 84, height: 60 } };
 
-  it("bounds the worker-lanes viewport, not the track stack", () => {
-    expect(selectionSpan(extent)).toEqual({ top: 65, height: 451 });
+  it("spans the whole viewport for a drag selection", () => {
+    expect(selectionSpan(spanning)).toEqual({ top: 65, height: 451 });
   });
 
-  it("covers the viewport WHOLE, legend included", () => {
-    // The legend floats over the bottom third and is mostly hidden behind the
-    // canvas; carving it out cost ~150px and left the box short of the bottom
-    // workers, which is what the box is for.
-    const { top, height } = selectionSpan(extent);
-    expect(top + height).toBe(extent.lanes.bottom);
+  it("bounds a worker-scoped highlight to that row alone", () => {
+    // The problem happened on ONE worker; boxing all of them says the runtime
+    // stalled.
+    expect(selectionSpan(onRow)).toEqual({ top: 149, height: 60 });
+  });
+
+  it("moves the row box as the lanes scroll under it", () => {
+    expect(selectionSpan({ ...onRow, lanesScrollTop: 40 }).top).toBe(109);
+  });
+
+  it("clips a row scrolled half out of the viewport", () => {
+    // Row top would land 20px above the viewport; only the lower 40px show.
+    expect(selectionSpan({ ...onRow, lanesScrollTop: 104 }))
+      .toEqual({ top: 65, height: 40 });
+  });
+
+  it("collapses a row scrolled fully out rather than drawing over the tracks", () => {
+    expect(selectionSpan({ ...onRow, lanesScrollTop: 400 }).height).toBe(0);
+    expect(selectionSpan({ ...onRow, lanesScrollTop: -600 }).height).toBe(0);
   });
 
   it("follows the viewport's height, which the user drags by hand", () => {
-    expect(selectionSpan({ ...extent, lanes: { top: 65, bottom: 300 } }).height)
+    expect(selectionSpan({ ...spanning, lanes: { top: 65, bottom: 300 } }).height)
       .toBe(235);
-    // Taller than the visible column: sizing off the column would stop the box
-    // short of the lanes it marks.
-    expect(selectionSpan({ ...extent, lanes: { top: 65, bottom: 1_240 } }).height)
-      .toBe(1_175);
   });
 
   it("falls back to the column before the lanes mount", () => {
-    expect(selectionSpan({ lanes: null, columnHeight: 500 }))
-      .toEqual({ top: 0, height: 500 });
+    expect(selectionSpan({ ...spanning, lanes: null }))
+      .toEqual({ top: 0, height: 846 });
   });
 
   it("clamps an inverted viewport to zero rather than a negative height", () => {
-    expect(selectionSpan({ ...extent, lanes: { top: 65, bottom: 40 } }).height)
+    expect(selectionSpan({ ...spanning, lanes: { top: 65, bottom: 40 } }).height)
       .toBe(0);
+  });
+});
+
+describe("highlightLaneRow - which row a highlight marks", () => {
+  const rows = [
+    { kind: "header", name: "main", inferred: true, workerCount: 2, collapsed: false, y: 0, height: 24 },
+    { kind: "worker", workerId: 0, index: 0, y: 24, height: 60 },
+    { kind: "worker", workerId: 1, index: 1, y: 84, height: 60 },
+    { kind: "runtime-metrics", name: "main", inferred: true, collapsed: false, y: 144, height: 60 },
+    { kind: "header", name: "io", inferred: false, workerCount: 2, collapsed: false, y: 204, height: 24 },
+    { kind: "worker", workerId: 2, index: 2, y: 228, height: 60 },
+  ] as unknown as Parameters<typeof highlightLaneRow>[0];
+
+  it("finds the named worker's row", () => {
+    expect(highlightLaneRow(rows, 1)).toEqual({ y: 84, height: 60 });
+    expect(highlightLaneRow(rows, 2)).toEqual({ y: 228, height: 60 });
+  });
+
+  it("spans the lanes when the highlight names no worker", () => {
+    expect(highlightLaneRow(rows, null)).toBeNull();
+  });
+
+  it("never lands on a header or a metrics lane", () => {
+    // Worker ids and row indices share a number space; matching the wrong kind
+    // would box a runtime summary as though it were a worker.
+    expect(highlightLaneRow(rows, 0)).toEqual({ y: 24, height: 60 });
+  });
+
+  it("falls back to the folded runtime's header, where the row went", () => {
+    const folded = [
+      { kind: "header", name: "main", inferred: true, workerCount: 2, collapsed: true, y: 0, height: 24 },
+    ] as unknown as Parameters<typeof highlightLaneRow>[0];
+    expect(highlightLaneRow(folded, 0)).toEqual({ y: 0, height: 24 });
+  });
+
+  it("gives up when the worker is nowhere to be found", () => {
+    expect(highlightLaneRow(rows, 99)).toBeNull();
   });
 });
 

@@ -29,8 +29,10 @@ import { assertInScheduledRender } from "../../store/store.js";
 import { formatHumanDuration } from "../../lib/trace/index.js";
 import { estimateLabelWidth } from "./axis.js";
 import { highlightCaption } from "./poi.js";
-import { timePanelLayout } from "../../lib/canvas/layout.js";
-import type { TimePanelLayout } from "../../lib/canvas/layout.js";
+import { laneRowLayout, timePanelLayout } from "../../lib/canvas/layout.js";
+import type { LaneRow, TimePanelLayout } from "../../lib/canvas/layout.js";
+import { LANE_ROW_H, RUNTIME_HEADER_H } from "../../components/canvas/lanes/render.js";
+import { deriveLaneData } from "../../components/canvas/lanes/index.js";
 import { lanesScrollbarWidth } from "../../lib/canvas/track-layout.js";
 import type { ViewerStore } from "../../store/store.js";
 import type {
@@ -155,6 +157,40 @@ export interface SelectionExtent {
   lanes: { top: number; bottom: number } | null;
   /** The scrollable column height: the last-resort extent. */
   columnHeight: number;
+  /**
+   * The single lane row to bound the box to, in LANES-CONTENT coordinates
+   * (`laneRowLayout`'s own `y`), or null to span the whole viewport.
+   *
+   * Set only for a highlight that names a worker: a descheduled period happens
+   * on ONE worker, and boxing all of them says the runtime stalled.
+   */
+  laneRow: { y: number; height: number } | null;
+  /** How far the lanes viewport is scrolled, since `laneRow` is content-local
+   *  and the box is positioned in column coordinates. */
+  lanesScrollTop: number;
+}
+
+/**
+ * The lane row a highlight belongs to, from `laneRowLayout`'s output.
+ *
+ * Falls back to the owning runtime's HEADER row when the worker's group is
+ * folded away: the row is gone, but the header is where it went, so the box
+ * still points at where it went rather than silently spanning everything. Pure.
+ */
+export function highlightLaneRow(
+  rows: readonly LaneRow[],
+  worker: number | null,
+): { y: number; height: number } | null {
+  if (worker === null) return null;
+  for (const row of rows) {
+    if (row.kind === "worker" && row.workerId === worker) {
+      return { y: row.y, height: row.height };
+    }
+  }
+  const folded = rows.find(
+    (row) => row.kind === "header" && row.collapsed && row.workerCount > 0,
+  );
+  return folded === undefined ? null : { y: folded.y, height: folded.height };
 }
 
 /** Vertical placement (CSS px, column-local) of the box. */
@@ -164,13 +200,18 @@ export interface SelectionSpan {
 }
 
 /**
- * Box top/height: the worker-lanes viewport, whole.
+ * Box top/height.
  *
- * The lanes are what a time selection is ABOUT - every other track is a derived
- * summary of the same window, and covering them tinted the ruler's own labels,
- * the span filter and the event chips without saying anything extra. Bounding
- * the viewport also means the box tracks its height for free, which is the one
- * part of the column the user resizes by hand.
+ * With a `laneRow`, exactly that row: the problem being marked happened on one
+ * worker at one moment, so the box says which. Without one - a drag selection,
+ * which is a time region over everything - the whole worker-lanes viewport. The
+ * lanes are what a time selection is ABOUT either way; every other track is a
+ * derived summary of the same window, and covering them tinted the ruler's own
+ * labels, the span filter and the event chips without saying anything extra.
+ *
+ * A lane row is clipped to the viewport, so a row scrolled half out of view
+ * shows the half that is visible and one scrolled fully out collapses to
+ * nothing rather than drawing over the tracks below.
  *
  * The lanes legend is NOT carved out. It floats over the viewport's bottom
  * third and is mostly invisible (it paints behind the canvas, showing through
@@ -183,10 +224,16 @@ export interface SelectionSpan {
  */
 export function selectionSpan(m: SelectionExtent): SelectionSpan {
   if (m.lanes === null) return { top: 0, height: m.columnHeight };
-  return {
-    top: m.lanes.top,
-    height: Math.max(0, m.lanes.bottom - m.lanes.top),
-  };
+  if (m.laneRow === null) {
+    return {
+      top: m.lanes.top,
+      height: Math.max(0, m.lanes.bottom - m.lanes.top),
+    };
+  }
+  const rowTop = m.lanes.top + m.laneRow.y - m.lanesScrollTop;
+  const top = Math.max(m.lanes.top, rowTop);
+  const bottom = Math.min(m.lanes.bottom, rowTop + m.laneRow.height);
+  return { top, height: Math.max(0, bottom - top) };
 }
 
 // Measuring-bar metrics: the label's padding and borders on top of the ruler's
@@ -308,11 +355,20 @@ export function mountSelectionOverlay(
    * silently reinterpreted every `offsetTop` here as tracks-local and slid the
    * box out of place.
    */
-  function selectionExtent(lanes: HTMLElement | null): SelectionExtent {
+  function selectionExtent(
+    lanes: HTMLElement | null,
+    laneRow: { y: number; height: number } | null,
+  ): SelectionExtent {
     const origin =
       trackColumn.getBoundingClientRect().top - trackColumn.scrollTop;
     const columnHeight = trackColumn.scrollHeight;
-    if (lanes === null) return { lanes: null, columnHeight };
+    // The LIVE scrollTop, not uiPrefs.lanesScrollTop: the scroll handler writes
+    // that after the DOM has already moved, so the store value trails by a
+    // frame during a fling and the box would lag the row it marks.
+    const lanesScrollTop = lanes?.scrollTop ?? 0;
+    if (lanes === null) {
+      return { lanes: null, columnHeight, laneRow: null, lanesScrollTop: 0 };
+    }
     const rect = lanes.getBoundingClientRect();
     return {
       lanes: {
@@ -320,7 +376,34 @@ export function mountSelectionOverlay(
         bottom: Math.round(rect.bottom - origin),
       },
       columnHeight,
+      laneRow,
+      lanesScrollTop,
     };
+  }
+
+  /**
+   * The lane row a POI box is bounded to, or null for a box that spans the
+   * lanes. Recomputed per render off the memoized lane data, so a fold, a
+   * reorder or a reparse moves the box with the rows.
+   */
+  function laneRowFor(region: SelectionRegion): { y: number; height: number } | null {
+    if (region.mode !== "poi") return null;
+    const state = store.getState();
+    const worker = state.selection.highlight?.worker;
+    const trace = state.trace.trace;
+    if (worker === undefined || trace === null) return null;
+    const data = deriveLaneData(trace);
+    const { rows } = laneRowLayout(
+      data.runtimeGroups,
+      LANE_ROW_H,
+      RUNTIME_HEADER_H,
+      state.uiPrefs.collapsedRuntimes,
+      {
+        runtimes: data.metricsRuntimes,
+        collapsed: state.uiPrefs.collapsedRuntimeMetrics,
+      },
+    );
+    return highlightLaneRow(rows, worker);
   }
 
   /**
@@ -333,8 +416,12 @@ export function mountSelectionOverlay(
    * the store until mouseup, precisely so a shell re-render cannot fight it, so
    * no store tick exists to ride.
    */
-  function applySpan(el: HTMLElement, lanes: HTMLElement | null): SelectionSpan {
-    const span = selectionSpan(selectionExtent(lanes));
+  function applySpan(
+    el: HTMLElement,
+    lanes: HTMLElement | null,
+    laneRow: { y: number; height: number } | null,
+  ): SelectionSpan {
+    const span = selectionSpan(selectionExtent(lanes, laneRow));
     el.style.top = `${span.top}px`;
     el.style.height = `${span.height}px`;
     return span;
@@ -374,12 +461,17 @@ export function mountSelectionOverlay(
   // the drag, and it cannot loop: the box is not inside the lanes, so resizing
   // it never resizes what is observed.
   let observed: HTMLElement | null = null;
+  /** The row the last render bounded the box to, so a resize re-applies the same
+   *  geometry without a store read. */
+  let observedRow: { y: number; height: number } | null = null;
   const resizeObserver =
     typeof ResizeObserver === "undefined"
       ? null
       : new ResizeObserver(() => {
           const el = trackColumn.querySelector<HTMLElement>(`.${OVERLAY_CLASS}`);
-          if (el !== null && el.style.display !== "none") applySpan(el, observed);
+          if (el !== null && el.style.display !== "none") {
+            applySpan(el, observed, observedRow);
+          }
         });
 
   /** Follow the CURRENT lanes element: a reparse re-renders the track list, and
@@ -438,7 +530,8 @@ export function mountSelectionOverlay(
     el.style.display = "block";
     trackColumn.classList.add(BOXED_CLASS);
     watchLanes(lanes);
-    const span = applySpan(el, lanes);
+    observedRow = laneRowFor(region);
+    const span = applySpan(el, lanes, observedRow);
     // Only the POI tier has a marker to name; a drag box labels nothing.
     renderCaption(
       el,
@@ -478,13 +571,20 @@ export function mountSelectionOverlay(
   // contract and trips the dev assertion at boot. Nothing is drawable before
   // that first tick anyway
   // (no trace, no selection => the box is hidden).
-  const unsubscribe = store.subscribe(["transient", "viewport", "selection", "uiPrefs"], () => render());
+  // `trace` joins the list for the lane ROWS: the box is bounded to one
+  // worker's row, and a reparse rebuilds the runtime groups those rows come
+  // from.
+  const unsubscribe = store.subscribe(
+    ["trace", "transient", "viewport", "selection", "uiPrefs"],
+    () => render(),
+  );
 
   return {
     dispose(): void {
       unsubscribe();
       resizeObserver?.disconnect();
       observed = null;
+      observedRow = null;
       trackColumn.classList.remove(BOXED_CLASS);
       trackColumn.querySelector<HTMLElement>(`.${OVERLAY_CLASS}`)?.remove();
     },

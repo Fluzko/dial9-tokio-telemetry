@@ -1893,16 +1893,23 @@ body {
 /* Hatched, not flat: the span is wall time the worker was AWAKE, of which only
    a fraction was off-CPU, and a solid wash reads as "all of this was bad". The
    EDGES stay solid - unlike the fill they are exact, since the period's start
-   and end are recorded; it is only the distribution inside that is unknown. */
+   and end are recorded; it is only the distribution inside that is unknown.
+
+   The box now bounds ONE lane row rather than the whole stack, so it has to
+   carry its own edge: a faint tint that read fine over 450px of lanes
+   disappears at 60px. Hence full-strength amber sides, a bright outline that
+   separates it from the lane bars underneath, and a denser hatch. */
 .d9-selection-overlay.poi {
     background: repeating-linear-gradient(
         45deg,
-        rgba(255, 176, 32, 0.11) 0 5px,
-        rgba(255, 176, 32, 0.02) 5px 10px
+        rgba(255, 176, 32, 0.28) 0 4px,
+        rgba(255, 176, 32, 0.08) 4px 9px
     );
-    border-color: rgba(255, 176, 32, 0.85);
-    border-left-width: 2px;
-    border-right-width: 2px;
+    border-color: rgb(255, 176, 32);
+    border-width: 2px;
+    box-shadow:
+        0 0 0 1px rgba(10, 14, 28, 0.9),
+        0 0 10px rgba(255, 176, 32, 0.45);
 }
 
 /* The marker's own label, pinned inside its leading edge. Clipped on ITSELF,
@@ -1918,9 +1925,10 @@ body {
     overflow: hidden;
     padding: 1px 5px;
     font: 10px monospace;
+    font-weight: 600;
     white-space: nowrap;
     color: #0a0e1c;
-    background: rgba(255, 176, 32, 0.85);
+    background: rgb(255, 176, 32);
     border-bottom-right-radius: 3px;
 }
 /* The measuring bar follows the box's colour. */
