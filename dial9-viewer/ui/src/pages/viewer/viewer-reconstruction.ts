@@ -94,7 +94,10 @@ export function createViewerReconstruction(
       }
     }
     const selection = resolveUrlSelection(trace, urlState);
-    let poiRange: SelectionSlice["poiRange"] = null;
+    // `resolveUrlSelection` already seeded any `highlight=` link. An anchored
+    // issue rebuilds a richer marker below and overwrites it, since it knows
+    // which detector found the span and how bad it was.
+    let highlight: SelectionSlice["highlight"] = null;
     if (
       urlState.poiAnchor !== undefined ||
       (
@@ -122,7 +125,7 @@ export function createViewerReconstruction(
         // Applied on its own, not folded into `selection`: an anchored issue is
         // not a canonical SELECTION, and letting it read as one would suppress
         // the focus_* bootstrap below.
-        poiRange = poiJump(sorted[index]!, store.getState().viewport).highlight;
+        highlight = poiJump(sorted[index]!, store.getState().viewport).highlight;
       }
     }
     const hasCanonicalSelection =
@@ -162,7 +165,7 @@ export function createViewerReconstruction(
         break;
       }
     }
-    if (poiRange !== null) selection.poiRange = poiRange;
+    if (highlight !== null) selection.highlight = highlight;
     if (Object.keys(selection).length > 0) {
       store.update("selection", selection);
     }

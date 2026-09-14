@@ -340,7 +340,7 @@ export function createIssuesRail(store: ViewerStore): IssuesRailController {
       focusedSpanId: null,
       taskDump: null,
       // Always written, so the previous jump's box never outlives its row.
-      poiRange: jump.highlight,
+      highlight: jump.highlight,
     });
     store.update("poi", { index });
     // Moving the time window is not enough: the lanes box scrolls
@@ -368,7 +368,7 @@ export function createIssuesRail(store: ViewerStore): IssuesRailController {
       pinnedEvent: null,
       pollDetail: null,
       taskDump: null,
-      poiRange: null,
+      highlight: null,
     });
     store.update("poi", { taskIndex: index });
     if (task.firstPollWorker >= 0) revealWorker(task.firstPollWorker);
@@ -413,8 +413,8 @@ export function createIssuesRail(store: ViewerStore): IssuesRailController {
    *  and the jump's highlight box has to go with the row it belonged to. */
   function deselectIssue(patch: Partial<StoreState["poi"]>): void {
     store.update("poi", { ...patch, index: -1 });
-    if (store.getState().selection.poiRange !== null) {
-      store.update("selection", { poiRange: null });
+    if (store.getState().selection.highlight !== null) {
+      store.update("selection", { highlight: null });
     }
   }
 

@@ -34,7 +34,7 @@ function selection(over: Partial<SelectionSlice> = {}): SelectionSlice {
     pinnedEvent: null,
     taskDump: null,
     sidebarRange: null,
-    poiRange: null,
+    highlight: null,
     hoveredWakerTaskId: null,
     scopedSpawnLoc: null,
     spawnedTasksRange: null,
@@ -46,8 +46,8 @@ function selection(over: Partial<SelectionSlice> = {}): SelectionSlice {
 const EXTENT = { minTs: 0, maxTs: 10_000 };
 
 /** A jump marker; only its range matters to the precedence rules. */
-const marker = (startNs: number, endNs: number): SelectionSlice["poiRange"] => ({
-  startNs, endNs, worker: 0, severityNs: 1_000, kind: "off-cpu-active",
+const marker = (startNs: number, endNs: number): SelectionSlice["highlight"] => ({
+  startNs, endNs, worker: 0, source: { kind: "off-cpu-active", severityNs: 1_000 },
 });
 
 describe("activeSelectionRegion - precedence", () => {
@@ -124,25 +124,25 @@ describe("activeSelectionRegion - precedence", () => {
   it("an issues-rail jump range draws the amber POI box", () => {
     const region = activeSelectionRegion(
       transient(),
-      selection({ poiRange: marker(3_000, 4_000) }),
+      selection({ highlight: marker(3_000, 4_000) }),
       EXTENT,
     );
     expect(region).toEqual({ startNs: 3_000, endNs: 4_000, mode: "poi" });
   });
 
   it("a POI jump range yields to a retained analysis and to a live gesture", () => {
-    const poiRange = marker(3_000, 4_000);
+    const highlight = marker(3_000, 4_000);
     expect(
       activeSelectionRegion(
         transient(),
-        selection({ poiRange, sidebarRange: { startNs: 1_000, endNs: 2_000 } }),
+        selection({ highlight, sidebarRange: { startNs: 1_000, endNs: 2_000 } }),
         EXTENT,
       ),
     ).toEqual({ startNs: 1_000, endNs: 2_000, mode: "region" });
     expect(
       activeSelectionRegion(
         transient({ drag: { kind: "region-select", startX: 0, startNs: 400, curNs: 100, moved: true } }),
-        selection({ poiRange }),
+        selection({ highlight }),
         EXTENT,
       ),
     ).toEqual({ startNs: 100, endNs: 400, mode: "region" });
@@ -154,7 +154,7 @@ describe("activeSelectionRegion - precedence", () => {
     // rail row points at.
     const region = activeSelectionRegion(
       transient(),
-      selection({ poiRange: marker(EXTENT.minTs, EXTENT.maxTs) }),
+      selection({ highlight: marker(EXTENT.minTs, EXTENT.maxTs) }),
       EXTENT,
     );
     expect(region).toEqual({

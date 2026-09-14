@@ -128,23 +128,41 @@ export interface TaskDumpSelection {
 }
 
 /**
- * The issues-rail jump's lane marker: the boxed range plus the facts behind
- * it, so the box can name what it marks and the inspector can report it.
+ * What produced a highlight, when something specific did.
  *
  * The range is WALL time and the severity is a fraction of it - a 17ms period
  * that was off-CPU for 1.4ms - so both travel together. Carrying the range
  * alone would leave every surface implying the whole window was the outage.
  */
-export interface PoiHighlight {
-  startNs: number;
-  endNs: number;
-  /** The worker the period belongs to; the box spans every lane, so this is
-   *  the only thing that attributes it. */
-  worker: number;
-  /** The detector's severity, normalized to ns. */
-  severityNs: number;
+export interface HighlightSource {
   /** Which detector produced it, so consumers can word the severity. */
   kind: PointOfInterestType;
+  /** The detector's severity, normalized to ns. */
+  severityNs: number;
+}
+
+/**
+ * A marked region of the timeline: the general "look here" annotation.
+ *
+ * Deliberately NOT POI-specific. The issues rail is its first caller, but the
+ * shape is a plain range plus an optional lane, so anything that wants to point
+ * at a moment can set one - and a link can carry one (`highlight=` ), which is
+ * what makes a region shareable without an issue behind it.
+ */
+export interface Highlight {
+  startNs: number;
+  endNs: number;
+  /**
+   * Lane to bound the box to; null spans the worker lanes.
+   *
+   * A descheduled period happens on ONE worker, and a box over all of them
+   * reads as "the runtime stalled" - so the marker names the lane rather than
+   * leaving the reader to find it.
+   */
+  worker: number | null;
+  /** What produced it; null for a plain linked region, which has facts of its
+   *  own to state. */
+  source: HighlightSource | null;
 }
 
 /**
@@ -183,14 +201,15 @@ export interface SelectionSlice {
    */
   sidebarRange: TimeRange | null;
   /**
-   * The current issues-rail jump's lane marker. Set only for a POI whose
-   * subject the lanes draw no bar for - a descheduled worker period is a
-   * property of a stretch of wall time, not of a poll or a park - so without
-   * it the jump moves the viewport and marks nothing. Distinct from
-   * `sidebarRange`: that one retains a region ANALYSIS and gates keyboard
-   * selection; this is a passive marker with no sidebar behind it.
+   * The marked region, if any. The issues rail sets one for a POI whose subject
+   * the lanes draw no bar for - a descheduled worker period is a property of a
+   * stretch of wall time, not of a poll or a park - so without it the jump
+   * moves the viewport and marks nothing. A `highlight=` link sets one with no
+   * POI behind it. Distinct from `sidebarRange`: that one retains a region
+   * ANALYSIS and gates keyboard selection; this is a passive marker with no
+   * sidebar behind it.
    */
-  poiRange: PoiHighlight | null;
+  highlight: Highlight | null;
   /** Waker task hovered in the task-detail panel (orange polls). */
   hoveredWakerTaskId: number | null;
   /**

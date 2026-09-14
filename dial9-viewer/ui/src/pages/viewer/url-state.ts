@@ -18,6 +18,7 @@ import type {
   InspectorTab,
   RegionAnalysisMode,
   FieldChartSpec,
+  Highlight,
 } from "../../types/state.js";
 import type { PointOfInterestType } from "../../types/trace.js";
 import type { ViewState } from "../../lib/url/index.js";
@@ -63,6 +64,7 @@ const P_POLL = "poll";
 const P_TASK_DUMP = "task-dump";
 const P_EVENT = "event";
 const P_REGION = "region";
+const P_HIGHLIGHT = "highlight";
 const P_SPAWNED = "spawned";
 const P_ISSUE = "issue";
 const P_ISSUE_SORT = "issue-sort";
@@ -165,9 +167,7 @@ export const VIEWER_STATE_OWNERSHIP = {
     pollDetail: url(P_POLL),
     taskDump: url(P_TASK_DUMP),
     sidebarRange: url(P_REGION),
-    // Reconstructed from the anchored POI on load, not carried itself: it is
-    // that POI's own span, so a second encoding of it could disagree.
-    poiRange: derived,
+    highlight: url(P_HIGHLIGHT),
     hoveredWakerTaskId: transient,
     scopedSpawnLoc: url(P_TASK_SCOPE),
     spawnedTasksRange: url(P_SPAWNED),
@@ -303,6 +303,13 @@ export function projectViewerState(state: ReadonlyState<StoreState>): ViewState 
   if (sel.pinnedEvent !== null) vs.pinnedEventTs = sel.pinnedEvent.timestamp;
   if (sel.sidebarRange !== null) {
     vs.sidebarRange = `${sel.sidebarRange.startNs}-${sel.sidebarRange.endNs}`;
+  }
+  // Only a highlight with no POI behind it is carried here. One that came from
+  // an issue is already encoded by `issue-anchor`, which reconstructs the whole
+  // marker - emitting both would put the same span in the URL twice, free to
+  // disagree after a reparse.
+  if (sel.highlight != null && sel.highlight.source === null) {
+    vs.highlight = encodeHighlight(sel.highlight);
   }
   if (sel.spawnedTasksRange !== null) {
     vs.spawnedRange = `${sel.spawnedTasksRange.startNs}-${sel.spawnedTasksRange.endNs}`;
@@ -455,6 +462,7 @@ export function mirrorViewerToQuery(
   set(params, P_TASK_DUMP, vs.taskDumpAnchor ?? null);
   set(params, P_EVENT, vs.pinnedEventTs != null ? String(Math.round(vs.pinnedEventTs)) : null);
   set(params, P_REGION, vs.sidebarRange ?? null);
+  set(params, P_HIGHLIGHT, vs.highlight ?? null);
   set(params, P_SPAWNED, vs.spawnedRange ?? null);
   set(params, P_ISSUE, vs.poiFilter ?? null);
   set(params, P_ISSUE_SORT, vs.poiSort ?? null);
@@ -549,6 +557,35 @@ function set(params: URLSearchParams, key: string, value: string | null): void {
   else params.set(key, value);
 }
 
+/**
+ * `startNs-endNs`, plus `@worker` when the marker is scoped to one lane.
+ *
+ * Readable and hand-writable on purpose: the point of carrying a highlight in
+ * the URL is that a link can point at a moment nothing in the app selected.
+ */
+export function encodeHighlight(h: Highlight): string {
+  const lane = h.worker === null ? "" : `@${h.worker}`;
+  return `${h.startNs}-${h.endNs}${lane}`;
+}
+
+/** Inverse of `encodeHighlight`; null for anything malformed, so a mistyped
+ *  link lands on the trace rather than on a box at NaN. A decoded highlight has
+ *  no `source`: the URL carries a region, not a detector's finding. */
+export function decodeHighlight(value: string | null): Highlight | null {
+  if (value == null) return null;
+  const [range, lane] = value.split("@");
+  if (range === undefined) return null;
+  const pair = rangePair(range);
+  if (pair === null) return null;
+  let worker: number | null = null;
+  if (lane !== undefined) {
+    const n = Number(lane);
+    if (!Number.isInteger(n) || n < 0) return null;
+    worker = n;
+  }
+  return { startNs: pair.startNs, endNs: pair.endNs, worker, source: null };
+}
+
 function encodePoiAnchor(anchor: PoiAnchor): string {
   return [
     Math.round(anchor.worker),
@@ -599,6 +636,7 @@ export interface ViewerUrlState {
   taskDump?: { taskId: number; timestamps: number[] };
   pinnedEventTs?: number;
   sidebarRange?: { startNs: number; endNs: number };
+  highlight?: Highlight;
   spawnedRange?: { startNs: number; endNs: number };
   /** Issues-rail restore (applied at boot). */
   poiFilter?: PointOfInterestType;
@@ -829,6 +867,8 @@ export function readViewerUrlState(search: string): ViewerUrlState {
   if (event != null) out.pinnedEventTs = event;
   const region = rangePair(p.get(P_REGION));
   if (region != null) out.sidebarRange = region;
+  const highlight = decodeHighlight(p.get(P_HIGHLIGHT));
+  if (highlight !== null) out.highlight = highlight;
   const spawned = rangePair(p.get(P_SPAWNED));
   if (spawned != null) out.spawnedRange = spawned;
   const issue = p.get(P_ISSUE);

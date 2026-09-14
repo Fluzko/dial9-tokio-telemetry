@@ -225,6 +225,7 @@ list escaping. Previously emitted comma/pre-encoded list values remain readable.
 | `task-dump` | `<taskId>:<timestamp>[,<timestamp>...]` | Selected task-dump captures. |
 | `event` | monotonic ns | Pinned custom-event cluster timestamp. |
 | `region` | `<startNs>-<endNs>` | Retained analysis region. |
+| `highlight` | `<startNs>-<endNs>[@worker]` | Marked region; `@worker` bounds the box to one lane. |
 | `spawned` | `<startNs>-<endNs>` | Queue-track spawned-task range. |
 | `issue` | POI detector id | Issues filter. |
 | `issue-sort` | `<worker\|kind\|time\|duration>,<asc\|desc>` | Issues ordering. |

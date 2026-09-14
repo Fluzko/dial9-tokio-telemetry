@@ -37,7 +37,7 @@ import type {
   SchedDelay,
 } from "../../types/trace.js";
 import type {
-  PoiHighlight,
+  Highlight,
   PoiSlice,
   PoiSortKey,
   ViewportSlice,
@@ -560,7 +560,7 @@ export interface PoiJump {
    * "off-cpu-active" moves the viewport and marks nothing, so the jump reads as
    * a no-op.
    */
-  highlight: PoiHighlight | null;
+  highlight: Highlight | null;
 }
 
 /** Padding added on EACH side when framing a whole-interval POI, as a fraction
@@ -586,7 +586,7 @@ export function poiJump(poi: PointOfInterest, vp: ViewportSlice): PoiJump {
   let viewStart = Math.max(minTs, poi.time - viewDur * 0.3);
   let viewEnd = Math.min(maxTs, viewStart + viewDur);
   let selectedTaskId: number | null = pollTaskId(poi.span);
-  let highlight: PoiHighlight | null = null;
+  let highlight: Highlight | null = null;
 
   if (poi.schedDelay) {
     const sd = poi.schedDelay;
@@ -613,8 +613,7 @@ export function poiJump(poi: PointOfInterest, vp: ViewportSlice): PoiJump {
       startNs: poi.span.start,
       endNs: poi.span.end,
       worker: poi.worker,
-      severityNs: valueNs(poi),
-      kind: poi.type,
+      source: { kind: poi.type, severityNs: valueNs(poi) },
     };
   }
 
@@ -639,29 +638,37 @@ function severityNoun(kind: PointOfInterestType): string {
  * off-CPU" reads against a "17ms" that is right there - and the pair is what
  * stops the hard box edges being read as a 17ms outage.
  */
-export function poiHighlightCaption(h: PoiHighlight): string {
-  const severity = formatHumanDuration(h.severityNs);
-  return `${workerLabel(h.worker)} · ${severity} ${severityNoun(h.kind)}`;
+export function highlightCaption(h: Highlight): string | null {
+  if (h.source === null) return null;
+  const severity = formatHumanDuration(h.source.severityNs);
+  const who = h.worker === null ? "" : `${workerLabel(h.worker)} · `;
+  return `${who}${severity} ${severityNoun(h.source.kind)}`;
 }
 
 /** One `label: value` line of the inspector's jump-marker card. */
-export interface PoiHighlightRow {
+export interface HighlightRow {
   label: string;
   value: string;
 }
 
 /** The inspector's card for the current jump marker. */
-export interface PoiHighlightSummary {
+export interface HighlightSummary {
   title: string;
-  rows: PoiHighlightRow[];
+  rows: HighlightRow[];
 }
 
 /** Who the marker is about, in a few words: the status line's subject and the
  *  card's heading. The numbers live in the caption and the card rows, so this
  *  deliberately carries none. */
-export function poiHighlightTitle(h: PoiHighlight): string {
-  const what = h.kind === "off-cpu-active" ? "descheduled" : kindLabel(h.kind);
-  return `${workerLabel(h.worker)} ${what}`;
+export function highlightTitle(h: Highlight): string {
+  if (h.source === null) {
+    return h.worker === null
+      ? "Highlighted region"
+      : `${workerLabel(h.worker)} highlighted`;
+  }
+  const what =
+    h.source.kind === "off-cpu-active" ? "descheduled" : kindLabel(h.source.kind);
+  return h.worker === null ? what : `${workerLabel(h.worker)} ${what}`;
 }
 
 /**
@@ -671,26 +678,36 @@ export function poiHighlightTitle(h: PoiHighlight): string {
  * jump otherwise left the inspector reading "No selection" - the one POI kind
  * that populated nothing after a click.
  */
-export function poiHighlightSummary(
-  h: PoiHighlight,
+export function highlightSummary(
+  h: Highlight,
   minTs: number,
-): PoiHighlightSummary {
+): HighlightSummary {
   const wall = h.endNs - h.startNs;
+  const window = {
+    label: "window",
+    value: `${relTimeLabel(h.startNs, minTs)} -> ${relTimeLabel(h.endNs, minTs)}`,
+  };
+  // A linked region has no detector behind it, so there is no severity to
+  // apportion - it states its extent and stops rather than inventing a metric.
+  if (h.source === null) {
+    return {
+      title: highlightTitle(h),
+      rows: [window, { label: "span", value: formatHumanDuration(wall) }],
+    };
+  }
   // A zero-length period cannot happen (the detectors need positive off-CPU
   // time inside it) but the share is user-facing arithmetic, so guard the
   // divide rather than print NaN%.
-  const share = wall > 0 ? ` (${((h.severityNs / wall) * 100).toFixed(1)}%)` : "";
+  const share =
+    wall > 0 ? ` (${((h.source.severityNs / wall) * 100).toFixed(1)}%)` : "";
   return {
-    title: poiHighlightTitle(h),
+    title: highlightTitle(h),
     rows: [
-      {
-        label: "window",
-        value: `${relTimeLabel(h.startNs, minTs)} -> ${relTimeLabel(h.endNs, minTs)}`,
-      },
+      window,
       { label: "awake", value: formatHumanDuration(wall) },
       {
-        label: severityNoun(h.kind),
-        value: `${formatHumanDuration(h.severityNs)}${share}`,
+        label: severityNoun(h.source.kind),
+        value: `${formatHumanDuration(h.source.severityNs)}${share}`,
       },
     ],
   };

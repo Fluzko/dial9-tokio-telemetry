@@ -114,7 +114,7 @@ describe("issues-rail n/p stepping", () => {
     expect(binding(rail.keyBindings, "n").onKey(FAKE_KEY)).toBe(true);
 
     const state = store.getState();
-    const box = state.selection.poiRange;
+    const box = state.selection.highlight;
     // The lanes draw no bar for an awake-but-descheduled stretch, so without
     // the box the jump moves the viewport and marks nothing.
     expect(box).not.toBeNull();
@@ -130,14 +130,17 @@ describe("issues-rail n/p stepping", () => {
   it("drops a previous box when stepping to an issue the lanes already draw", () => {
     const store = loadedStore();
     store.update("selection", {
-      poiRange: { startNs: 1, endNs: 2, worker: 0, severityNs: 1, kind: "off-cpu-active" },
+      highlight: {
+        startNs: 1, endNs: 2, worker: 0,
+        source: { kind: "off-cpu-active", severityNs: 1 },
+      },
     });
     store.update("poi", { filter: "cpu-sampled" });
     const rail = createIssuesRail(store);
 
     expect(binding(rail.keyBindings, "n").onKey(FAKE_KEY)).toBe(true);
 
-    expect(store.getState().selection.poiRange).toBeNull();
+    expect(store.getState().selection.highlight).toBeNull();
   });
 
   it("declines (returns false) when no trace is loaded - the key falls through", () => {

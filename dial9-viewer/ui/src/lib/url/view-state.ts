@@ -102,6 +102,9 @@ export interface ViewState {
   pinnedEventTs?: number;
   /** Retained region (`"startNs-endNs"`) -> selection.sidebarRange. */
   sidebarRange?: string;
+  /** Marked region (`"startNs-endNs"`, plus `"@worker"` when lane-scoped) ->
+   *  selection.highlight. */
+  highlight?: string;
   /** Spawned-tasks range (`"startNs-endNs"`) -> selection.spawnedTasksRange. */
   spawnedRange?: string;
   /** Span-panel subtree focus id, re-resolved on load (distinct from the

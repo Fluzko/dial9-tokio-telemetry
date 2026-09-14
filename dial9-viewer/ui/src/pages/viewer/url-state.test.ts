@@ -3,6 +3,8 @@ import type { ReadonlyState } from "../../store/store.js";
 import type { StoreState } from "../../types/state.js";
 import { DEFAULT_SPAWN_DELAY_THRESHOLD_US } from "./poi.js";
 import {
+  decodeHighlight,
+  encodeHighlight,
   hydrateViewerStore,
   projectViewerState,
   mirrorViewerToQuery,
@@ -98,6 +100,36 @@ function roundTrip(state: ReadonlyState<StoreState>) {
   mirrorViewerToQuery(params, projectViewerState(state));
   return { params, out: readViewerUrlState("?" + params.toString()) };
 }
+
+describe("viewer URL state: linked highlight", () => {
+  it("round-trips a lane-scoped region", () => {
+    expect(encodeHighlight({
+      startNs: 1_000, endNs: 9_000, worker: 2, source: null,
+    })).toBe("1000-9000@2");
+    expect(decodeHighlight("1000-9000@2")).toEqual({
+      startNs: 1_000, endNs: 9_000, worker: 2, source: null,
+    });
+  });
+
+  it("round-trips a region that names no lane", () => {
+    expect(encodeHighlight({
+      startNs: 1_000, endNs: 9_000, worker: null, source: null,
+    })).toBe("1000-9000");
+    expect(decodeHighlight("1000-9000")).toEqual({
+      startNs: 1_000, endNs: 9_000, worker: null, source: null,
+    });
+  });
+
+  it("decodes to a SOURCELESS marker - the URL carries a region, not a finding", () => {
+    expect(decodeHighlight("1000-9000@0")?.source).toBeNull();
+  });
+
+  it("rejects a malformed link rather than boxing NaN", () => {
+    for (const bad of [null, "", "nonsense", "1000", "1000-", "-9000", "1000-9000@x", "1000-9000@-1", "1000-9000@1.5"]) {
+      expect(decodeHighlight(bad), `should reject ${JSON.stringify(bad)}`).toBeNull();
+    }
+  });
+});
 
 describe("viewer URL state: issues-rail (poi)", () => {
   it("round-trips a non-default filter, sort, and index", () => {

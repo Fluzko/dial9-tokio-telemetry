@@ -50,8 +50,8 @@ import {
   redFlagLabel,
   redFlagSummary,
   POI_WORST_N_DEFAULT,
-  poiHighlightCaption,
-  poiHighlightSummary,
+  highlightCaption,
+  highlightSummary,
   poiJump,
   poisForFilter,
   poiSourceFor,
@@ -566,14 +566,13 @@ describe("poiJump", () => {
 
   it("boxes the off-cpu-active period, since the lanes draw no bar for it", () => {
     const p = poi("off-cpu-active", 1e8, 3, 9e6, park(1e8, 1e8 + 1e7));
-    // Worker and severity ride along: the box spans every lane, so nothing
-    // else attributes it, and its edges are wall time, not the 9ms off-CPU.
+    // Worker and severity ride along: the worker is what scopes the box to one
+    // lane, and its edges are wall time, not the 9ms off-CPU.
     expect(poiJump(p, vp).highlight).toEqual({
       startNs: 1e8,
       endNs: 1e8 + 1e7,
       worker: 3,
-      severityNs: 9e6,
-      kind: "off-cpu-active",
+      source: { kind: "off-cpu-active", severityNs: 9e6 },
     });
   });
 
@@ -596,32 +595,31 @@ describe("jump-marker wording", () => {
     startNs: 1_000_000_000 + 17_010_000,
     endNs: 1_000_000_000 + 34_020_000,
     worker: 0,
-    severityNs: 1_410_000,
-    kind: "off-cpu-active" as const,
+    source: { kind: "off-cpu-active" as const, severityNs: 1_410_000 },
   };
 
   it("names the worker and the severity, leaving the span to the measure bar", () => {
     // The box spans every lane, so nothing else says W0. The boxed duration is
     // omitted on purpose - the measuring bar states it one row above.
-    expect(poiHighlightCaption(highlight)).toBe("W0 · 1.41ms off-CPU");
+    expect(highlightCaption(highlight)).toBe("W0 · 1.41ms off-CPU");
   });
 
   it("drops the caption's severity claim to the share it really is", () => {
-    const card = poiHighlightSummary(highlight, 1_000_000_000);
+    const card = highlightSummary(highlight, 1_000_000_000);
     expect(card.title).toBe("W0 descheduled");
-    expect(card.rows.map((r) => r.label)).toEqual(["window", "awake", "off-CPU"]);
+    expect(card.rows.map((r: { label: string }) => r.label)).toEqual(["window", "awake", "off-CPU"]);
     expect(card.rows[1]!.value).toBe("17ms");
     expect(card.rows[2]!.value).toBe("1.41ms (8.3%)");
   });
 
   it("reports the window as trace-relative offsets", () => {
-    const card = poiHighlightSummary(highlight, 1_000_000_000);
+    const card = highlightSummary(highlight, 1_000_000_000);
     expect(card.rows[0]!.value).toBe("+0.02s -> +0.03s");
   });
 
   it("prints no share for a zero-length span rather than NaN%", () => {
     const degenerate = { ...highlight, endNs: highlight.startNs };
-    expect(poiHighlightSummary(degenerate, 0).rows[2]!.value).toBe("1.41ms");
+    expect(highlightSummary(degenerate, 0).rows[2]!.value).toBe("1.41ms");
   });
 });
 

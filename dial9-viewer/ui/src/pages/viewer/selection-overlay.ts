@@ -28,13 +28,13 @@
 import { assertInScheduledRender } from "../../store/store.js";
 import { formatHumanDuration } from "../../lib/trace/index.js";
 import { estimateLabelWidth } from "./axis.js";
-import { poiHighlightCaption } from "./poi.js";
+import { highlightCaption } from "./poi.js";
 import { timePanelLayout } from "../../lib/canvas/layout.js";
 import type { TimePanelLayout } from "../../lib/canvas/layout.js";
 import { lanesScrollbarWidth } from "../../lib/canvas/track-layout.js";
 import type { ViewerStore } from "../../store/store.js";
 import type {
-  PoiHighlight,
+  Highlight,
   SelectionSlice,
   TransientSlice,
 } from "../../types/state.js";
@@ -86,7 +86,7 @@ export interface SelectionRegion {
  *      sub-range, and a whole-trace analysis (the toolbar Flamegraph /
  *      Blocking Calls / Heap buttons retain [minTs, maxTs]) has no sub-range
  *      to distinguish - boxing everything just tints the page (issue #796);
- *   4. else the current issues-rail jump's range (selection.poiRange) - the
+ *   4. else the current issues-rail jump's range (selection.highlight) - the
  *      marker for a POI the lanes draw no bar for. Last, because it is passive:
  *      an in-flight gesture or a retained analysis is what the user is doing
  *      NOW;
@@ -121,7 +121,7 @@ export function activeSelectionRegion(
     }
     return { startNs: retained.startNs, endNs: retained.endNs, mode: "region" };
   }
-  const poi = selection.poiRange;
+  const poi = selection.highlight;
   if (poi !== null) {
     return { startNs: poi.startNs, endNs: poi.endNs, mode: "poi" };
   }
@@ -348,13 +348,13 @@ export function mountSelectionOverlay(
    */
   function renderCaption(
     el: HTMLElement,
-    highlight: PoiHighlight | null,
+    highlight: Highlight | null,
     width: number,
   ): void {
     let caption = el.querySelector<HTMLElement>(`.${CAPTION_CLASS}`);
     const text =
       highlight !== null && width >= CAPTION_MIN_WIDTH
-        ? poiHighlightCaption(highlight)
+        ? highlightCaption(highlight)
         : "";
     if (text === "") {
       caption?.remove();
@@ -442,7 +442,7 @@ export function mountSelectionOverlay(
     // Only the POI tier has a marker to name; a drag box labels nothing.
     renderCaption(
       el,
-      region.mode === "poi" ? state.selection.poiRange : null,
+      region.mode === "poi" ? state.selection.highlight : null,
       box.width,
     );
 

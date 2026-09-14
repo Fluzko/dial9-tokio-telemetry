@@ -39,11 +39,11 @@ import type { RegionAnalysisController } from "./region-analysis.js";
 import type { ViewerStore } from "../../store/store.js";
 import type {
   AtCursorReadout,
-  PoiHighlight,
+  Highlight,
   SelectionSlice,
   StoreState,
 } from "../../types/state.js";
-import { poiHighlightSummary, poiHighlightTitle } from "./poi.js";
+import { highlightSummary, highlightTitle } from "./poi.js";
 import {
   INSPECTOR_TABS,
   autoActivateTab,
@@ -353,7 +353,7 @@ export function mountInspector(
       ></div>
       <div class="d9-inspector-inner">
         ${statusTemplate(s.selection)}
-        ${poiCardTemplate(s.selection.poiRange, s.viewport.minTs)}
+        ${poiCardTemplate(s.selection.highlight, s.viewport.minTs)}
         <div class="d9-atcursor-host"></div>
         <div class="d9-inspector-tabs" role="tablist" aria-label="Inspector tabs">
           ${INSPECTOR_TABS.map((t) => tabButton(t, avail[t]))}
@@ -391,11 +391,11 @@ export function mountInspector(
    * rather than something the user tabs to.
    */
   function poiCardTemplate(
-    highlight: PoiHighlight | null,
+    highlight: Highlight | null,
     minTs: number,
   ): TemplateResult | typeof nothing {
     if (highlight === null) return nothing;
-    const card = poiHighlightSummary(highlight, minTs);
+    const card = highlightSummary(highlight, minTs);
     return html`
       <div class="d9-poi-card" role="group" aria-label="Selected issue">
         <div class="d9-poi-card-title">${card.title}</div>
@@ -457,8 +457,12 @@ export function mountInspector(
     // region analysis is what the user is doing now, this is a passive marker.
     // Terse on purpose - the card right below carries the numbers, and the box
     // caption carries them again on the canvas.
-    if (sel.poiRange !== null) {
-      return `${poiHighlightTitle(sel.poiRange)} period selected`;
+    if (sel.highlight !== null) {
+      // "W0 descheduled period selected" for a detector's finding; a linked
+      // region has no period to name, so it just says what is marked.
+      return sel.highlight.source === null
+        ? `${highlightTitle(sel.highlight)} · Esc clears`
+        : `${highlightTitle(sel.highlight)} period selected`;
     }
     if (sel.selectedTaskId !== null) {
       return `Task 0x${sel.selectedTaskId.toString(16)} selected · Esc clears`;
@@ -1452,7 +1456,7 @@ export function mountInspector(
       pollDetail: null,
       taskDump: null,
       sidebarRange: null,
-      poiRange: null,
+      highlight: null,
       spawnedTasksRange: null,
       spawnedTasksRuntime: null,
       hoveredWakerTaskId: null,
@@ -1531,7 +1535,7 @@ export function mountInspector(
         sel.sidebarRange !== null ||
         // The issues-rail jump marker: no sidebar behind it, but it is a
         // visible mark, so Esc must be able to take it back off the lanes.
-        sel.poiRange !== null ||
+        sel.highlight !== null ||
         sel.spawnedTasksRange !== null
       );
     },
@@ -1541,7 +1545,7 @@ export function mountInspector(
         pollDetail: null,
         taskDump: null,
         sidebarRange: null,
-        poiRange: null,
+        highlight: null,
         spawnedTasksRange: null,
         spawnedTasksRuntime: null,
       });

@@ -846,6 +846,6 @@ export function hasNoSelection(sel: SelectionSlice): boolean {
     sel.taskDump === null &&
     sel.spawnedTasksRange === null &&
     sel.sidebarRange === null &&
-    sel.poiRange === null
+    sel.highlight === null
   );
 }

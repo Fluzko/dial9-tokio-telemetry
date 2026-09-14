@@ -42,7 +42,7 @@ export function initialViewerState(): StoreState {
       pollDetail: null,
       taskDump: null,
       sidebarRange: null,
-      poiRange: null,
+      highlight: null,
       hoveredWakerTaskId: null,
       scopedSpawnLoc: null,
       spawnedTasksRange: null,

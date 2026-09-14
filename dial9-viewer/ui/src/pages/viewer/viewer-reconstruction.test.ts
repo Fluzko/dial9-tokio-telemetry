@@ -346,6 +346,9 @@ describe("viewer deep-link reconstruction", () => {
       pinnedEventTs: event.timestamp,
       sidebarRange: range,
       spawnedRange: range,
+      // A LINKED highlight (no detector behind it): the only kind the URL
+      // carries, since a POI-sourced one rides `issue-anchor` instead.
+      highlight: { startNs: range.startNs, endNs: range.endNs, worker: 1, source: null },
     });
     expect(selection).toMatchObject({
       focusedSpanId: spanId,
@@ -579,7 +582,7 @@ describe("viewer deep-link reconstruction", () => {
       pollDetail: null,
       taskDump: null,
       sidebarRange: null,
-      poiRange: null,
+      highlight: null,
       hoveredWakerTaskId: null,
       // Resets with the source: a pinned spawn location names a call site in
       // the REPLACED trace, which the new one need not contain.
