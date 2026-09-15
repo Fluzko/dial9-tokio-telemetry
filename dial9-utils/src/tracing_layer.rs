@@ -63,13 +63,14 @@
 
 use dial9_core::clock::clock_monotonic_ns;
 use dial9_core::handle::Dial9Handle;
+use dial9_core::primitives::sync::Mutex;
 use dial9_trace_format::TraceEvent;
 use dial9_trace_format::encoder::Schema;
 use dial9_trace_format::schema::FieldDef;
 use dial9_trace_format::types::{FieldType, FieldValue};
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tracing::callsite::Identifier;
 use tracing::span;
 use tracing_subscriber::{Layer, layer::Context, registry::LookupSpan};
@@ -421,5 +422,120 @@ where
             timestamp_ns: clock_monotonic_ns(),
             span_id: id.into_u64(),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn callsite_a() -> &'static tracing::Metadata<'static> {
+        tracing::subscriber::with_default(tracing_subscriber::registry(), || {
+            let span = tracing::info_span!("callsite_a", field_a = 1, field_b = 2);
+            span.metadata().expect("span carries its callsite metadata")
+        })
+    }
+
+    fn callsite_b() -> &'static tracing::Metadata<'static> {
+        tracing::subscriber::with_default(tracing_subscriber::registry(), || {
+            let span = tracing::info_span!("callsite_b", field_c = 3);
+            span.metadata().expect("span carries its callsite metadata")
+        })
+    }
+
+    /// This would catch the cache collapsing two distinct
+    /// callsites into one entry: the shuttle test exercises just one
+    /// callsite (it's checking the lock, not the keying), so per-callsite
+    /// schema keying needs its own coverage here.
+    fn get_schemas_is_keyed_per_callsite_body() {
+        let layer = Dial9TracingLayer::new();
+        let a = layer.get_schemas(callsite_a());
+        let b = layer.get_schemas(callsite_b());
+
+        assert_ne!(a.enter.name(), b.enter.name());
+        assert_ne!(a.exit.name(), b.exit.name());
+        assert_ne!(a.field_names, b.field_names);
+    }
+
+    #[cfg(not(shuttle))]
+    #[test]
+    fn get_schemas_is_keyed_per_callsite() {
+        get_schemas_is_keyed_per_callsite_body();
+    }
+
+    #[cfg(shuttle)]
+    #[test]
+    fn get_schemas_is_keyed_per_callsite() {
+        // No interleaving to explore; check_random(1) just gives the
+        // shuttle-mocked Mutex an ExecutionState to lock into.
+        shuttle::check_random(get_schemas_is_keyed_per_callsite_body, 1);
+    }
+
+    #[cfg(shuttle)]
+    mod shuttle_tests {
+        use super::*;
+        use dial9_core::primitives::thread;
+        use dial9_core::shuttle_test;
+
+        const CALLERS: usize = 4;
+
+        /// One callsite for all racing threads to share. A separate
+        /// `info_span!` call per thread would each compile to its own
+        /// `Identifier`, racing four different cache entries instead of one.
+        fn probe_span() -> tracing::Span {
+            tracing::info_span!(
+                "shuttle_concurrent_get_schemas_probe",
+                field_a = 1,
+                field_b = 2
+            )
+        }
+
+        shuttle_test! {
+            default;
+            // Races `get_schemas` directly. Tracing's internals use plain
+            // `std::thread_local!`, which shuttle's single-OS-thread scheduling breaks.
+            // Racing real `info_span!` calls corrupts sharded-slab's shard slots
+            // and silently drops a thread's `SpanData`.
+            fn shuttle_concurrent_get_schemas() {
+                // Real callsite metadata, same pattern as `callsite_a`/
+                // `callsite_b`: a bare `Registry` (no layers) is enough to
+                // make the span "real" and produce metadata.
+                let meta = tracing::subscriber::with_default(tracing_subscriber::registry(), || {
+                    probe_span()
+                        .metadata()
+                        .expect("span carries its callsite metadata")
+                });
+
+                let layer = Arc::new(Dial9TracingLayer::new());
+                let handles: Vec<_> = (0..CALLERS)
+                    .map(|_| {
+                        let layer = layer.clone();
+                        thread::spawn(move || layer.get_schemas(meta))
+                    })
+                    .collect();
+                let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
+
+                // A racy rebuild would leave at least one caller holding a
+                // different, orphaned `Arc` instead of the shared one.
+                let first_ptr = Arc::as_ptr(&results[0]);
+                assert!(
+                    results.iter().all(|s| Arc::as_ptr(s) == first_ptr),
+                    "cache must build a callsite's schema exactly once and share it, no matter \
+                     how many real concurrent callers race for it"
+                );
+                // Counting the cache's own entry, plus each racing caller's
+                // clone in `results`.
+                assert_eq!(
+                    Arc::strong_count(&results[0]),
+                    CALLERS + 1,
+                    "cache must share the single built schema with every racing caller"
+                );
+                drop(results);
+
+                // Confirms the lock wasn't left poisoned by the race, and
+                // still serves the same cached entry.
+                assert_eq!(Arc::as_ptr(&layer.get_schemas(meta)), first_ptr);
+            }
+        }
     }
 }
