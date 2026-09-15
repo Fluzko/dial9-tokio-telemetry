@@ -1060,3 +1060,134 @@ mod tests {
         }
     }
 }
+
+#[cfg(all(test, shuttle))]
+mod shuttle_tests {
+    use super::super::recorder_tokio;
+    use super::*;
+    use crate::background_task::testutil::CapturingProcessor;
+    use crate::telemetry::{Dial9HandleTokioExt, TokioAttachOptions};
+    use dial9_core::shuttle_test;
+
+    shuttle_test! {
+        // Attaching a pipeline stage makes `build()` spawn the
+        // worker thread, whose call depth overflows shuttle's bare-core
+        // 60KB default stack (SIGBUS). `num_iters`/`depth` match
+        // `shuttle_test!`'s `default` budget.
+        num_iters = 10_000, depth = 3, stack_size = dial9_core::primitives::SHUTTLE_TOKIO_STACK_SIZE;
+        // Races concurrent attaches on one cloned `Dial9Handle`, matching
+        // `attach_tokio_runtime`'s documented usage. Guards `with_source_or_insert`
+        // and the registry push staying atomic (both already are today; this is
+        // regression insurance, not a live bug). `num_iters` doubled for the real
+        // flush thread's own background cycling.
+        //
+        // Verified via the sealed trace, not `segment_metadata` directly: that
+        // method is single-consumer, so the real flush thread can eat a change
+        // before this test observes it.
+        //
+        // No live Tokio worker thread exists under shuttle to claim a real
+        // worker id, so one is registered directly via `register_worker_if_needed`.
+        fn shuttle_concurrent_attach() {
+            // Fixed time, like `test_core_pipeline`: otherwise the flush
+            // thread's rotation checks read real elapsed time, which can
+            // differ between a shuttle replay's record and re-run passes.
+            let _ts_guard = metrique_timesource::set_time_source(metrique_timesource::TimeSource::custom(
+                metrique_timesource::fakes::StaticTimeSource::at_time(std::time::UNIX_EPOCH),
+            ));
+
+            const ATTACHERS: usize = 3;
+            let writer = dial9_core::buffer::MemoryBuffer::new(1 << 16).unwrap();
+            let (capture, captured) = CapturingProcessor::new();
+            let recorder = dial9_core::recorder::recorder(writer)
+                .pipe(capture)
+                .build();
+            recorder.handle().enable();
+            let handle = recorder.handle().clone();
+
+            let attachers: Vec<_> = (0..ATTACHERS)
+                .map(|i| {
+                    let handle = handle.clone();
+                    crate::primitives::thread::spawn(move || {
+                        let name = format!("runtime-{i}");
+                        let builder = tokio::runtime::Builder::new_current_thread();
+                        let options = TokioAttachOptions::builder()
+                            .runtime_name(name.clone())
+                            .build();
+                        let runtime = handle.attach_tokio_runtime(builder, options).unwrap();
+                        drop(runtime);
+
+                        // Keyed by `runtime_name`, not runtime id: `is_runtime` needs
+                        // `cfg(not(tokio_unstable))`, which this crate's shuttle build never sets.
+                        let state = recorder_tokio::tokio_attach_state(&handle)
+                            .expect("attach_tokio_runtime installed the source above");
+                        let ctx = state
+                            .registry
+                            .lock()
+                            .unwrap()
+                            .iter()
+                            .find(|c| c.runtime_name.as_deref() == Some(name.as_str()))
+                            .cloned()
+                            .expect("attach_tokio_runtime pushed this context above");
+                        // Drives the real worker-registration path a live
+                        // Tokio worker thread would hit via resolve_worker;
+                        // shuttle has none, so this stands in for that
+                        // thread's first-touch registration.
+                        register_worker_if_needed(&ctx, i as u64);
+                    })
+                })
+                .collect();
+
+            for a in attachers {
+                a.join().unwrap();
+            }
+
+            // A trivial marker event: `finalize()` discards a segment that
+            // never held a real event, so without this the metadata-only
+            // segment below would never get sealed at all.
+            handle.record_event(WorkerParkEvent {
+                timestamp_ns: 0,
+                worker_id: WorkerId::UNKNOWN,
+                local_queue: 0,
+                cpu_time_ns: 0,
+                tid: 0,
+            });
+
+            // Finalizes (seals the pending segment) and drains the real
+            // worker thread's pipeline, so the assertion below runs
+            // against the same `CapturingProcessor` this recorder's own
+            // worker fed.
+            recorder.graceful_shutdown(Duration::from_secs(1));
+
+            let mut seen = std::collections::HashMap::new();
+            for bytes in captured.lock().unwrap().iter() {
+                let events = crate::telemetry::format::decode_events(bytes).expect("decode trace");
+                for event in events {
+                    if let crate::telemetry::analysis_events::Dial9Event::SegmentMetadataEvent(meta) =
+                        event
+                    {
+                        seen.extend(meta.entries);
+                    }
+                }
+            }
+            let runtime_entries: std::collections::BTreeMap<String, String> = seen
+                .iter()
+                .filter(|(k, _)| k.starts_with("runtime."))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            assert_eq!(
+                runtime_entries.len(),
+                ATTACHERS,
+                "every concurrent attach must be observed exactly once in the trace: \
+                 found these runtime.* entries: {runtime_entries:?}"
+            );
+            for i in 0..ATTACHERS {
+                let key = format!("runtime.runtime-{i}");
+                assert!(
+                    runtime_entries.contains_key(&key),
+                    "runtime-{i}'s entry was never observed in the trace: \
+                     found these runtime.* entries: {runtime_entries:?}"
+                );
+            }
+        }
+    }
+}
