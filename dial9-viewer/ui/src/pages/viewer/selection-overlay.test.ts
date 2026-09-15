@@ -9,6 +9,8 @@ import {
   measureText,
   measureWidth,
   selectionBox,
+  selectionSpan,
+  highlightLaneRow,
 } from "./selection-overlay.js";
 import { timePanelLayout, LABEL_W } from "../../lib/canvas/layout.js";
 import type { SelectionSlice, TransientSlice } from "../../types/state.js";
@@ -33,6 +35,7 @@ function selection(over: Partial<SelectionSlice> = {}): SelectionSlice {
     pinnedEvent: null,
     taskDump: null,
     sidebarRange: null,
+    highlight: null,
     hoveredWakerTaskId: null,
     scopedSpawnLoc: null,
     spawnedTasksRange: null,
@@ -42,6 +45,11 @@ function selection(over: Partial<SelectionSlice> = {}): SelectionSlice {
 
 /** The trace extent the retained-box rule compares against. */
 const EXTENT = { minTs: 0, maxTs: 10_000 };
+
+/** A jump marker; only its range matters to the precedence rules. */
+const marker = (startNs: number, endNs: number): SelectionSlice["highlight"] => ({
+  startNs, endNs, worker: 0, source: { kind: "off-cpu-active", severityNs: 1_000 },
+});
 
 describe("activeSelectionRegion - precedence", () => {
   it("a live keyboard selection wins over everything", () => {
@@ -114,8 +122,141 @@ describe("activeSelectionRegion - precedence", () => {
     });
   });
 
+  it("an issues-rail jump range draws the amber POI box", () => {
+    const region = activeSelectionRegion(
+      transient(),
+      selection({ highlight: marker(3_000, 4_000) }),
+      EXTENT,
+    );
+    expect(region).toEqual({ startNs: 3_000, endNs: 4_000, mode: "poi" });
+  });
+
+  it("a POI jump range yields to a retained analysis and to a live gesture", () => {
+    const highlight = marker(3_000, 4_000);
+    expect(
+      activeSelectionRegion(
+        transient(),
+        selection({ highlight, sidebarRange: { startNs: 1_000, endNs: 2_000 } }),
+        EXTENT,
+      ),
+    ).toEqual({ startNs: 1_000, endNs: 2_000, mode: "region" });
+    expect(
+      activeSelectionRegion(
+        transient({ drag: { kind: "region-select", startX: 0, startNs: 400, curNs: 100, moved: true } }),
+        selection({ highlight }),
+        EXTENT,
+      ),
+    ).toEqual({ startNs: 100, endNs: 400, mode: "region" });
+  });
+
+  it("a POI jump range covering the whole trace still draws its box", () => {
+    // Unlike a retained analysis, this box IS the subject: an off-cpu-active
+    // period that happens to span the resident window is still the thing the
+    // rail row points at.
+    const region = activeSelectionRegion(
+      transient(),
+      selection({ highlight: marker(EXTENT.minTs, EXTENT.maxTs) }),
+      EXTENT,
+    );
+    expect(region).toEqual({
+      startNs: EXTENT.minTs,
+      endNs: EXTENT.maxTs,
+      mode: "poi",
+    });
+  });
+
   it("nothing selected => null (box hidden)", () => {
     expect(activeSelectionRegion(transient(), selection(), EXTENT)).toBeNull();
+  });
+});
+
+describe("selectionSpan - vertical extent", () => {
+  // The worker-lanes viewport sits below the ruler and above the analysis
+  // tracks; the column scrolls past both.
+  const spanning = {
+    lanes: { top: 65, bottom: 516 },
+    columnHeight: 846,
+    laneRow: null,
+    lanesScrollTop: 0,
+  };
+  // W1 of four 60px rows under a 24px runtime header.
+  const onRow = { ...spanning, laneRow: { y: 84, height: 60 } };
+
+  it("spans the whole viewport for a drag selection", () => {
+    expect(selectionSpan(spanning)).toEqual({ top: 65, height: 451 });
+  });
+
+  it("bounds a worker-scoped highlight to that row alone", () => {
+    // The problem happened on ONE worker; boxing all of them says the runtime
+    // stalled.
+    expect(selectionSpan(onRow)).toEqual({ top: 149, height: 60 });
+  });
+
+  it("moves the row box as the lanes scroll under it", () => {
+    expect(selectionSpan({ ...onRow, lanesScrollTop: 40 }).top).toBe(109);
+  });
+
+  it("clips a row scrolled half out of the viewport", () => {
+    // Row top would land 20px above the viewport; only the lower 40px show.
+    expect(selectionSpan({ ...onRow, lanesScrollTop: 104 }))
+      .toEqual({ top: 65, height: 40 });
+  });
+
+  it("collapses a row scrolled fully out rather than drawing over the tracks", () => {
+    expect(selectionSpan({ ...onRow, lanesScrollTop: 400 }).height).toBe(0);
+    expect(selectionSpan({ ...onRow, lanesScrollTop: -600 }).height).toBe(0);
+  });
+
+  it("follows the viewport's height, which the user drags by hand", () => {
+    expect(selectionSpan({ ...spanning, lanes: { top: 65, bottom: 300 } }).height)
+      .toBe(235);
+  });
+
+  it("falls back to the column before the lanes mount", () => {
+    expect(selectionSpan({ ...spanning, lanes: null }))
+      .toEqual({ top: 0, height: 846 });
+  });
+
+  it("clamps an inverted viewport to zero rather than a negative height", () => {
+    expect(selectionSpan({ ...spanning, lanes: { top: 65, bottom: 40 } }).height)
+      .toBe(0);
+  });
+});
+
+describe("highlightLaneRow - which row a highlight marks", () => {
+  const rows = [
+    { kind: "header", name: "main", inferred: true, workerCount: 2, collapsed: false, y: 0, height: 24 },
+    { kind: "worker", workerId: 0, index: 0, y: 24, height: 60 },
+    { kind: "worker", workerId: 1, index: 1, y: 84, height: 60 },
+    { kind: "runtime-metrics", name: "main", inferred: true, collapsed: false, y: 144, height: 60 },
+    { kind: "header", name: "io", inferred: false, workerCount: 2, collapsed: false, y: 204, height: 24 },
+    { kind: "worker", workerId: 2, index: 2, y: 228, height: 60 },
+  ] as unknown as Parameters<typeof highlightLaneRow>[0];
+
+  it("finds the named worker's row", () => {
+    expect(highlightLaneRow(rows, 1)).toEqual({ y: 84, height: 60 });
+    expect(highlightLaneRow(rows, 2)).toEqual({ y: 228, height: 60 });
+  });
+
+  it("spans the lanes when the highlight names no worker", () => {
+    expect(highlightLaneRow(rows, null)).toBeNull();
+  });
+
+  it("never lands on a header or a metrics lane", () => {
+    // Worker ids and row indices share a number space; matching the wrong kind
+    // would box a runtime summary as though it were a worker.
+    expect(highlightLaneRow(rows, 0)).toEqual({ y: 24, height: 60 });
+  });
+
+  it("falls back to the folded runtime's header, where the row went", () => {
+    const folded = [
+      { kind: "header", name: "main", inferred: true, workerCount: 2, collapsed: true, y: 0, height: 24 },
+    ] as unknown as Parameters<typeof highlightLaneRow>[0];
+    expect(highlightLaneRow(folded, 0)).toEqual({ y: 0, height: 24 });
+  });
+
+  it("gives up when the worker is nowhere to be found", () => {
+    expect(highlightLaneRow(rows, 99)).toBeNull();
   });
 });
 

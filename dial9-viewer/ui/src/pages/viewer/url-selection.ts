@@ -213,6 +213,14 @@ export function resolveUrlSelection(
   if (sidebarRange !== null) patch.sidebarRange = sidebarRange;
   const spawnedRange = resolveRange(url.spawnedRange);
   if (spawnedRange !== null) patch.spawnedTasksRange = spawnedRange;
+  // A linked marker gets the same treatment: clamped to this trace, and dropped
+  // when it falls wholly outside, so a link from another trace does not leave a
+  // box pointing at nothing. Its `worker` is NOT validated against the lane set
+  // - an unknown lane resolves to no row and the box simply spans the lanes.
+  if (url.highlight !== undefined) {
+    const range = resolveRange(url.highlight);
+    if (range !== null) patch.highlight = { ...url.highlight, ...range };
+  }
 
   return patch;
 }

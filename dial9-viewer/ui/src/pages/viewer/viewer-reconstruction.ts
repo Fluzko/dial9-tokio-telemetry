@@ -22,6 +22,7 @@ import {
   derivePoiViewModel,
   poiIndexForAnchor,
   poiIndexForPoll,
+  poiJump,
 } from "./poi.js";
 
 export type LoadedTraceKind = "source" | "reparse";
@@ -93,6 +94,10 @@ export function createViewerReconstruction(
       }
     }
     const selection = resolveUrlSelection(trace, urlState);
+    // `resolveUrlSelection` already seeded any `highlight=` link. An anchored
+    // issue rebuilds a richer marker below and overwrites it, since it knows
+    // which detector found the span and how bad it was.
+    let highlight: SelectionSlice["highlight"] = null;
     if (
       urlState.poiAnchor !== undefined ||
       (
@@ -114,6 +119,13 @@ export function createViewerReconstruction(
           : -1;
       if (index >= 0) {
         store.update("poi", { index });
+        // The jump's lane marker is a function of the anchored POI, so it is
+        // rebuilt here rather than carried as its own URL param - a shared
+        // off-cpu-active link lands with the period boxed, as the click does.
+        // Applied on its own, not folded into `selection`: an anchored issue is
+        // not a canonical SELECTION, and letting it read as one would suppress
+        // the focus_* bootstrap below.
+        highlight = poiJump(sorted[index]!, store.getState().viewport).highlight;
       }
     }
     const hasCanonicalSelection =
@@ -153,6 +165,7 @@ export function createViewerReconstruction(
         break;
       }
     }
+    if (highlight !== null) selection.highlight = highlight;
     if (Object.keys(selection).length > 0) {
       store.update("selection", selection);
     }

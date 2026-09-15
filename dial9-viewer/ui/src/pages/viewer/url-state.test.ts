@@ -3,6 +3,8 @@ import type { ReadonlyState } from "../../store/store.js";
 import type { StoreState } from "../../types/state.js";
 import { DEFAULT_SPAWN_DELAY_THRESHOLD_US } from "./poi.js";
 import {
+  decodeHighlight,
+  encodeHighlight,
   hydrateViewerStore,
   projectViewerState,
   mirrorViewerToQuery,
@@ -99,6 +101,36 @@ function roundTrip(state: ReadonlyState<StoreState>) {
   return { params, out: readViewerUrlState("?" + params.toString()) };
 }
 
+describe("viewer URL state: linked highlight", () => {
+  it("round-trips a lane-scoped region", () => {
+    expect(encodeHighlight({
+      startNs: 1_000, endNs: 9_000, worker: 2, source: null,
+    })).toBe("1000-9000@2");
+    expect(decodeHighlight("1000-9000@2")).toEqual({
+      startNs: 1_000, endNs: 9_000, worker: 2, source: null,
+    });
+  });
+
+  it("round-trips a region that names no lane", () => {
+    expect(encodeHighlight({
+      startNs: 1_000, endNs: 9_000, worker: null, source: null,
+    })).toBe("1000-9000");
+    expect(decodeHighlight("1000-9000")).toEqual({
+      startNs: 1_000, endNs: 9_000, worker: null, source: null,
+    });
+  });
+
+  it("decodes to a SOURCELESS marker - the URL carries a region, not a finding", () => {
+    expect(decodeHighlight("1000-9000@0")?.source).toBeNull();
+  });
+
+  it("rejects a malformed link rather than boxing NaN", () => {
+    for (const bad of [null, "", "nonsense", "1000", "1000-", "-9000", "1000-9000@x", "1000-9000@-1", "1000-9000@1.5"]) {
+      expect(decodeHighlight(bad), `should reject ${JSON.stringify(bad)}`).toBeNull();
+    }
+  });
+});
+
 describe("viewer URL state: issues-rail (poi)", () => {
   it("round-trips a non-default filter, sort, and index", () => {
     const { params, out } = roundTrip(
@@ -128,12 +160,26 @@ describe("viewer URL state: issues-rail (poi)", () => {
     expect(out.poiSpawnThresholdUs).toBe(2500);
   });
 
-  it("carries a zero threshold rather than reading it as absent", () => {
+  it("omits the zero threshold, which is now the default floor", () => {
     const { params, out } = roundTrip(
       mkState({ poi: { filter: "spawn-delay", spawnThresholdUs: 0 } }),
     );
-    expect(params.get("issue-threshold")).toBe("0");
-    expect(out.poiSpawnThresholdUs).toBe(0);
+    // 0 is the default floor now (the detectors rank rather than threshold), so
+    // it is the value the writer omits.
+    expect(params.get("issue-threshold")).toBeNull();
+    expect(out.poiSpawnThresholdUs).toBeUndefined();
+  });
+
+  it("round-trips a non-default list length and omits the default", () => {
+    const wide = roundTrip(mkState({ poi: { worstN: 200 } }));
+    expect(wide.params.get("issue-worst")).toBe("200");
+    expect(wide.out.poiWorstN).toBe(200);
+    expect(roundTrip(mkState({ poi: { worstN: 50 } })).params.get("issue-worst")).toBeNull();
+  });
+
+  it("drops a list length the rail does not offer", () => {
+    expect(readViewerUrlState("?issue-worst=37").poiWorstN).toBeUndefined();
+    expect(readViewerUrlState("?issue-worst=abc").poiWorstN).toBeUndefined();
   });
 
   it("clamps an out-of-range threshold and drops a non-numeric one", () => {

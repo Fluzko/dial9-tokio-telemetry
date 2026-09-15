@@ -128,6 +128,44 @@ export interface TaskDumpSelection {
 }
 
 /**
+ * What produced a highlight, when something specific did.
+ *
+ * The range is WALL time and the severity is a fraction of it - a 17ms period
+ * that was off-CPU for 1.4ms - so both travel together. Carrying the range
+ * alone would leave every surface implying the whole window was the outage.
+ */
+export interface HighlightSource {
+  /** Which detector produced it, so consumers can word the severity. */
+  kind: PointOfInterestType;
+  /** The detector's severity, normalized to ns. */
+  severityNs: number;
+}
+
+/**
+ * A marked region of the timeline: the general "look here" annotation.
+ *
+ * Deliberately NOT POI-specific. The issues rail is its first caller, but the
+ * shape is a plain range plus an optional lane, so anything that wants to point
+ * at a moment can set one - and a link can carry one (`highlight=` ), which is
+ * what makes a region shareable without an issue behind it.
+ */
+export interface Highlight {
+  startNs: number;
+  endNs: number;
+  /**
+   * Lane to bound the box to; null spans the worker lanes.
+   *
+   * A descheduled period happens on ONE worker, and a box over all of them
+   * reads as "the runtime stalled" - so the marker names the lane rather than
+   * leaving the reader to find it.
+   */
+  worker: number | null;
+  /** What produced it; null for a plain linked region, which has facts of its
+   *  own to state. */
+  source: HighlightSource | null;
+}
+
+/**
  * Cross-highlight state. All fields are independently clearable, hence all
  * explicitly nullable.
  */
@@ -162,6 +200,16 @@ export interface SelectionSlice {
    * the sidebar closes.
    */
   sidebarRange: TimeRange | null;
+  /**
+   * The marked region, if any. The issues rail sets one for a POI whose subject
+   * the lanes draw no bar for - a descheduled worker period is a property of a
+   * stretch of wall time, not of a poll or a park - so without it the jump
+   * moves the viewport and marks nothing. A `highlight=` link sets one with no
+   * POI behind it. Distinct from `sidebarRange`: that one retains a region
+   * ANALYSIS and gates keyboard selection; this is a passive marker with no
+   * sidebar behind it.
+   */
+  highlight: Highlight | null;
   /** Waker task hovered in the task-detail panel (orange polls). */
   hoveredWakerTaskId: number | null;
   /**
@@ -232,9 +280,12 @@ export interface PoiSlice {
    * option).
    */
   filter: PointOfInterestType;
-  /** Severity floor for "spawn-delay", in microseconds. The only user-tunable
-   *  detector threshold; the rest are fixed inside the detectors. */
+  /** Optional severity floor for "spawn-delay", in microseconds. The only
+   *  detector floor at all - the rest rank instead of thresholding. */
   spawnThresholdUs: number;
+  /** How many points the rail lists: one of POI_WORST_N_CHOICES. The detectors
+   *  rank by severity, so this is "show me the worst N", not a filter. */
+  worstN: number;
   /** Rail sort column. Default "duration" (worst-first). */
   sortKey: PoiSortKey;
   /** Sort direction. Default "desc" (worst-first = highest severity first). */

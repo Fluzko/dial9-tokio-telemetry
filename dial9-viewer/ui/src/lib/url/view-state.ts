@@ -102,6 +102,9 @@ export interface ViewState {
   pinnedEventTs?: number;
   /** Retained region (`"startNs-endNs"`) -> selection.sidebarRange. */
   sidebarRange?: string;
+  /** Marked region (`"startNs-endNs"`, plus `"@worker"` when lane-scoped) ->
+   *  selection.highlight. */
+  highlight?: string;
   /** Spawned-tasks range (`"startNs-endNs"`) -> selection.spawnedTasksRange. */
   spawnedRange?: string;
   /** Span-panel subtree focus id, re-resolved on load (distinct from the
@@ -111,6 +114,8 @@ export interface ViewState {
   poiFilter?: string;
   /** Issues-rail spawn-delay threshold in microseconds, when not the default. */
   poiSpawnThresholdUs?: number;
+  /** How many points the issues rail lists, when not the default. */
+  poiWorstN?: number;
   /** Issues-rail sort as `"<key>,<dir>"`, when not the default `duration,desc`. */
   poiSort?: string;
   /** Current POI index in the filtered+sorted rail list, when >= 0. */
