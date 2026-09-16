@@ -13,7 +13,12 @@ import type {
   SourceScope,
   TokioStatsResponse,
 } from "../../lib/trace/index.js";
-import { formatDuration, nsToDatetime, schedulingDelayEvidenceLabel } from "./format.js";
+import {
+  formatDuration,
+  nsToDatetime,
+  schedulingDelayEvidenceLabel,
+  zoneName,
+} from "./format.js";
 import { busynessHeat, latencyHeat } from "../../lib/trace/tokio_stats_api.js";
 import { exemplarLink } from "./exemplar.js";
 import {
@@ -84,13 +89,14 @@ function periodsTemplate(
   utc: boolean,
   handlers: PeriodHandlers,
 ): TemplateResult {
+  const zone = zoneName(utc);
   return html`${periods.map((p, i) => {
     const color = COLORS[i % COLORS.length];
     return html`
       <div class="period-row">
         <span class="tag" style="background:${color}33;color:${color}">P${i + 1}</span>
         <label
-          >From:
+          >From (${zone}):
           <input
             type="datetime-local"
             step="1"
@@ -98,7 +104,7 @@ function periodsTemplate(
             @change=${(e: Event) => handlers.onUpdate(p.id, "start", inputValue(e))}
         /></label>
         <label
-          >To:
+          >To (${zone}):
           <input
             type="datetime-local"
             step="1"

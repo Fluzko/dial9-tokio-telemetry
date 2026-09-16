@@ -17,6 +17,11 @@ const bySelector = <T extends HTMLElement>(sel: string): T =>
 export interface BrowserEls {
   // Header
   tzBtn: HTMLButtonElement;
+  /** Labels that name the active timezone (#654). */
+  rangeFromLabel: HTMLLabelElement;
+  rangeToLabel: HTMLLabelElement;
+  thTraceStart: HTMLSpanElement;
+  thUploaded: HTMLSpanElement;
   credsBtn: HTMLButtonElement;
   credsBtnLabel: HTMLSpanElement;
   // Credentials panel
@@ -69,6 +74,7 @@ export interface BrowserEls {
   rawSearchInput: HTMLInputElement;
   rawSearchBtn: HTMLButtonElement;
   rawStatus: HTMLDivElement;
+  rawTruncated: HTMLDivElement;
   rawTable: HTMLTableElement;
   rawBody: HTMLTableSectionElement;
   rawSelectAll: HTMLInputElement;
@@ -92,6 +98,10 @@ export interface BrowserEls {
 export function queryEls(): BrowserEls {
   return {
     tzBtn: byId("tz-btn"),
+    rangeFromLabel: byId("range-from-label"),
+    rangeToLabel: byId("range-to-label"),
+    thTraceStart: byId("th-trace-start"),
+    thUploaded: byId("th-uploaded"),
     credsBtn: byId("creds-btn"),
     credsBtnLabel: byId("creds-btn-label"),
     credsPanel: byId("creds-panel"),
@@ -139,6 +149,7 @@ export function queryEls(): BrowserEls {
     rawSearchInput: byId("raw-search-input"),
     rawSearchBtn: bySelector('button[data-action="raw-search"]'),
     rawStatus: byId("raw-status"),
+    rawTruncated: byId("raw-truncated"),
     rawTable: byId("raw-table"),
     rawBody: byId("raw-body"),
     rawSelectAll: byId("raw-select-all"),

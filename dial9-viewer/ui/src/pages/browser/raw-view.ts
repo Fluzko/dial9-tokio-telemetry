@@ -13,6 +13,7 @@ import { assertInScheduledRender } from "../../store/store.js";
 import type { PageCtx } from "./ctx.js";
 import { formatDate, formatEpochStr, formatSize } from "./format.js";
 import {
+  capRows,
   nextSort,
   parseRawSortKey,
   sortRawRows,
@@ -92,7 +93,11 @@ export function mountRawView({ store, els, actions }: PageCtx): void {
   ): void {
     els.rawBody.textContent = "";
 
-    for (const row of sortRawRows(toRawRows(objects), sort)) {
+    const capped = capRows(sortRawRows(toRawRows(objects), sort));
+    els.rawTruncated.textContent = capped.notice ? `\u26a0 ${capped.notice}` : "";
+    els.rawTruncated.style.display =
+      capped.notice && store.getState().raw.tableVisible ? "" : "none";
+    for (const row of capped.rows) {
       const { obj } = row;
       const tr = document.createElement("tr");
 
@@ -143,6 +148,7 @@ export function mountRawView({ store, els, actions }: PageCtx): void {
     assertInScheduledRender("raw-view render");
     renderStatus(els.rawStatus, state.raw.status);
     els.rawTable.style.display = state.raw.tableVisible ? "" : "none";
+    if (!state.raw.tableVisible) els.rawTruncated.style.display = "none";
     renderSortIndicators(state.raw.sort);
     // Rebuild only when a search / TZ toggle bumped the render epoch
     // (selection reset) or a header click changed the sort (selection
